@@ -260,38 +260,48 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             mainStack.trailingAnchor.constraint(equalTo: visualEffect.trailingAnchor)
         ])
 
-        // 1. Header Bar with White Rane Sixty-Eight Logo, "Control Panel" Title & Status (Zentriert)
+        // 1. Header Bar with Top-Down Rane Sixty-Eight Mixer Image & Single-Line Title (Zentriert)
         let headerStack = NSStackView()
         headerStack.orientation = .horizontal
         headerStack.alignment = .centerY
         headerStack.spacing = 10
         headerStack.edgeInsets = NSEdgeInsets(top: 2, left: 0, bottom: 2, right: 0)
 
-        let logoView = NSImageView()
-        if let path = Bundle.main.path(forResource: "logo_white", ofType: "png"),
+        let mixerView = NSImageView()
+        mixerView.wantsLayer = true
+        mixerView.layer?.cornerRadius = 6
+        mixerView.layer?.masksToBounds = true
+        mixerView.layer?.borderColor = NSColor(white: 0.35, alpha: 0.9).cgColor
+        mixerView.layer?.borderWidth = 1.0
+
+        if let path = Bundle.main.path(forResource: "mixer_topdown", ofType: "jpg"),
            let img = NSImage(contentsOfFile: path) {
-            logoView.image = img
+            mixerView.image = img
         } else if let resPath = Bundle.main.resourcePath,
-                  let img = NSImage(contentsOfFile: (resPath as NSString).appendingPathComponent("logo_white.png")) {
-            logoView.image = img
+                  let img = NSImage(contentsOfFile: (resPath as NSString).appendingPathComponent("mixer_topdown.jpg")) {
+            mixerView.image = img
         } else {
-            // Check relative to executable
             let execUrl = URL(fileURLWithPath: CommandLine.arguments[0])
-            let candidate = execUrl.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources/logo_white.png")
+            let candidate = execUrl.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources/mixer_topdown.jpg")
             if let img = NSImage(contentsOf: candidate) {
-                logoView.image = img
+                mixerView.image = img
             }
         }
-        logoView.imageScaling = .scaleProportionallyUpOrDown
-        logoView.translatesAutoresizingMaskIntoConstraints = false
-        logoView.heightAnchor.constraint(equalToConstant: 24).isActive = true
-        logoView.widthAnchor.constraint(equalToConstant: 212).isActive = true
-        headerStack.addArrangedSubview(logoView)
+        mixerView.imageScaling = .scaleAxesIndependently
+        mixerView.translatesAutoresizingMaskIntoConstraints = false
+        mixerView.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        mixerView.widthAnchor.constraint(equalToConstant: 36).isActive = true
+        headerStack.addArrangedSubview(mixerView)
 
-        let titleLabel = NSTextField(labelWithString: "Control Panel")
-        titleLabel.font = NSFont.systemFont(ofSize: 14, weight: .semibold)
-        titleLabel.textColor = NSColor(white: 0.88, alpha: 1.0)
-        headerStack.addArrangedSubview(titleLabel)
+        let brandTitleLabel = NSTextField(labelWithString: "RANE SIXTY-EIGHT")
+        brandTitleLabel.font = NSFont.systemFont(ofSize: 15, weight: .black)
+        brandTitleLabel.textColor = NSColor.white
+        headerStack.addArrangedSubview(brandTitleLabel)
+
+        let panelSubtitleLabel = NSTextField(labelWithString: "Control Panel")
+        panelSubtitleLabel.font = NSFont.systemFont(ofSize: 15, weight: .light)
+        panelSubtitleLabel.textColor = NSColor(white: 0.82, alpha: 1.0)
+        headerStack.addArrangedSubview(panelSubtitleLabel)
 
         // Kleiner Abstand vor dem Status Verbunden
         let smallGap = NSView()

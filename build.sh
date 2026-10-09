@@ -37,7 +37,7 @@ echo "========================================="
 mkdir -p "Rane Driver Manager.app/Contents/MacOS"
 mkdir -p "Rane Driver Manager.app/Contents/Resources"
 cp "${SCRIPT_DIR}/src/manager/Info.plist" "Rane Driver Manager.app/Contents/Info.plist"
-cp "${SCRIPT_DIR}/src/manager/logo_white.png" "Rane Driver Manager.app/Contents/Resources/" 2>/dev/null || true
+cp "${SCRIPT_DIR}/src/manager/mixer_topdown.jpg" "Rane Driver Manager.app/Contents/Resources/" 2>/dev/null || true
 cp "${SCRIPT_DIR}/src/manager/AppIcon.icns" "Rane Driver Manager.app/Contents/Resources/" 2>/dev/null || true
 cp -R "${SCRIPT_DIR}/scripts" "Rane Driver Manager.app/Contents/Resources/" 2>/dev/null || true
 cp "${SCRIPT_DIR}/src/midi-agent/org.openrane.sixtyeight.midi-agent.plist" "Rane Driver Manager.app/Contents/Resources/" 2>/dev/null || true
