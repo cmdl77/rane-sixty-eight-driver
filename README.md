@@ -8,7 +8,7 @@
 [![Architecture](https://img.shields.io/badge/Arch-Apple%20Silicon%20(M1--M4)%20%7C%20Intel-blue.svg)](https://github.com/cmdl77/rane-sixty-eight-driver)
 [![Driver](https://img.shields.io/badge/Type-100%25%20User--Space%20CoreAudio%20HAL-green.svg)](https://github.com/cmdl77/rane-sixty-eight-driver)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-orange.svg?logo=buy-me-a-coffee)](https://buymeacoffee.com)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-orange.svg?logo=buy-me-a-coffee)](https://buymeacoffee.com/cmdl77)
 
 A modern, high-performance, **100% User-Space CoreAudio HAL Driver** and **MIDI LaunchAgent** for the **Rane Sixty-Eight** DJ mixer on modern macOS versions (macOS 11 Big Sur through macOS 15 Sequoia).
 
@@ -102,7 +102,7 @@ Special thanks to the open-source audio & DJ community:
 
 If this driver brought your Rane Sixty-Eight back to life, consider buying a coffee to support continued development and maintenance:
 
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-yellow.svg?style=for-the-badge&logo=buy-me-a-coffee)](https://buymeacoffee.com)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-yellow.svg?style=for-the-badge&logo=buy-me-a-coffee)](https://buymeacoffee.com/cmdl77)
 
 ---
 
