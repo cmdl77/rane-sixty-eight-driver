@@ -1,0 +1,18 @@
+--- src/transport/IOUSBLibTransport.cpp
++++ src/transport/IOUSBLibTransport.cpp
+@@ -107,9 +107,11 @@
+     UInt64 bus = 0;
+     AbsoluteTime t;
+     (*intf)->GetBusFrameNumber(intf, &bus, &t);
++    // GetBusFrameNumber returns 1ms FRAMES!
++    // We schedule by FRAME, and submit 8 microframes (1 FRAME worth of data).
+     UInt64 f = next.load();
+-    if (force || f <= bus + 1 || f > bus + 32) {
+-        f = bus + 16;
++    if (force || f <= bus || f > bus + 32) {
++        f = bus + 2;  // Schedule 2 frames (2ms) ahead
+     }
+-    next.store(f + 8);
++    next.store(f + 1); // Advance by 1 FRAME (which contains 8 microframes)
+     return f;
+ }

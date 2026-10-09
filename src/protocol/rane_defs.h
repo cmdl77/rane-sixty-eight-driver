@@ -1,0 +1,95 @@
+/* SPDX-License-Identifier: MIT */
+/* rane_defs.h - Rane USB protocol definitions and device IDs.
+ * Supports Rane Sixty-Eight, Sixty-Four, Sixty-Two, SL4.
+ */
+#ifndef RANE_DEFS_H
+#define RANE_DEFS_H
+
+#include <stdint.h>
+#include <stdbool.h>
+#include <stddef.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* USB Vendor IDs */
+#define RANE_VENDOR_ID_1          0x1CC5  /* Rane Corporation (Decimal 7365) */
+#define RANE_VENDOR_ID_2          0x13E5  /* Rane Legacy VID */
+#define RANE_VENDOR_ID_3          0x29E2  /* inMusic Rane */
+
+/* Product IDs */
+#define RANE_PID_SIXTY_EIGHT_HW   0x0004  /* Rane Sixty-Eight Hardware PID 4 */
+#define RANE_PID_SIXTY_EIGHT_A    0x0008  /* Rane Sixty-Eight USB 1 */
+#define RANE_PID_SIXTY_EIGHT_B    0x0080  /* Rane Sixty-Eight USB 2 */
+#define RANE_PID_SIXTY_EIGHT_ALT  0x000E  /* Rane Sixty-Eight Alt FW */
+#define RANE_PID_SIXTY_FOUR       0x0014  /* Rane Sixty-Four */
+#define RANE_PID_SIXTY_TWO        0x0012  /* Rane Sixty-Two */
+#define RANE_PID_SL4              0x0006  /* Rane SL4 */
+
+/* Endpoints */
+#define RANE_EP_PCM_OUT           0x06    /* Endpoint 6 OUT (Isochronous Audio OUT) */
+#define RANE_EP_PCM_IN            0x82    /* Endpoint 2 IN  (0x02 | 0x80 Isochronous Audio IN) */
+#define RANE_EP_MIDI_IN           0x81    /* Endpoint 1 IN  (0x01 | 0x80 MIDI IN) */
+#define RANE_EP_MIDI_OUT          0x01    /* Endpoint 1 OUT (0x01 MIDI OUT) */
+
+/* Topology */
+#define RANE_CHANNELS             16      /* 16 Audio Input channels & 16 Output channels */
+#define RANE_BYTES_PER_SAMPLE     3       /* 24-bit PCM S24_3LE */
+#define RANE_OUT_FRAME_SIZE       (RANE_CHANNELS * RANE_BYTES_PER_SAMPLE) /* 48 bytes per frame */
+#define RANE_IN_FRAME_SIZE        (RANE_CHANNELS * RANE_BYTES_PER_SAMPLE)  /* 48 bytes per frame */
+#define RANE_FRAMES_PER_PACKET    48      /* 1ms buffer at 48kHz */
+
+/* Packet sizes */
+#define RANE_OUT_PKT_SIZE         (RANE_FRAMES_PER_PACKET * RANE_OUT_FRAME_SIZE) /* 2304 bytes */
+#define RANE_IN_PKT_SIZE          (RANE_FRAMES_PER_PACKET * RANE_IN_FRAME_SIZE)  /* 2304 bytes */
+
+#define RANE_NUM_INTERFACES       2
+#define RANE_ALT_SETTING_AUDIO    1
+
+/* Rate Encoding helper */
+static inline void rane_encode_rate(uint32_t rate, uint8_t buf[3]) {
+    buf[0] = (uint8_t)(rate & 0xFF);
+    buf[1] = (uint8_t)((rate >> 8) & 0xFF);
+    buf[2] = (uint8_t)((rate >> 16) & 0xFF);
+}
+
+static inline uint32_t rane_decode_rate(const uint8_t buf[3]) {
+    return (uint32_t)buf[0] | ((uint32_t)buf[1] << 8) | ((uint32_t)buf[2] << 16);
+}
+
+typedef struct {
+    uint16_t vid;
+    uint16_t pid;
+    const char *displayName;
+    const char *modelUID;
+    uint32_t defaultSampleRate;
+    uint32_t channels;
+} RaneDeviceInfo;
+
+static inline const RaneDeviceInfo* rane_lookup_device(uint16_t vid, uint16_t pid) {
+    static const RaneDeviceInfo kDevices[] = {
+        { RANE_VENDOR_ID_1, RANE_PID_SIXTY_EIGHT_HW,  "Rane Sixty-Eight",         "RaneSixtyEight_Model",  48000, 16 },
+        { RANE_VENDOR_ID_1, RANE_PID_SIXTY_EIGHT_A,   "Rane Sixty-Eight (USB 1)", "RaneSixtyEight_Model1", 48000, 16 },
+        { RANE_VENDOR_ID_1, RANE_PID_SIXTY_EIGHT_B,   "Rane Sixty-Eight (USB 2)", "RaneSixtyEight_Model2", 48000, 16 },
+        { RANE_VENDOR_ID_2, RANE_PID_SIXTY_EIGHT_HW,  "Rane Sixty-Eight",         "RaneSixtyEight_Model",  48000, 16 },
+        { RANE_VENDOR_ID_2, RANE_PID_SIXTY_EIGHT_A,   "Rane Sixty-Eight (USB 1)", "RaneSixtyEight_Model1", 48000, 16 },
+        { RANE_VENDOR_ID_3, RANE_PID_SIXTY_EIGHT_HW,  "Rane Sixty-Eight",         "RaneSixtyEight_Model",  48000, 16 },
+        { RANE_VENDOR_ID_1, RANE_PID_SIXTY_FOUR,      "Rane Sixty-Four",          "RaneSixtyFour_Model",   48000, 12 },
+        { RANE_VENDOR_ID_1, RANE_PID_SIXTY_TWO,       "Rane Sixty-Two",           "RaneSixtyTwo_Model",    48000, 6  },
+        { RANE_VENDOR_ID_1, RANE_PID_SL4,             "Rane SL4",                 "RaneSL4_Model",         48000, 10 },
+    };
+    for (size_t i = 0; i < sizeof(kDevices)/sizeof(kDevices[0]); i++) {
+        if ((kDevices[i].vid == vid || vid == 0 || kDevices[i].vid == 0x1CC5 || vid == 0x1CC5) &&
+            (kDevices[i].pid == pid || pid == 4 || pid == 8)) {
+            return &kDevices[i];
+        }
+    }
+    return NULL;
+}
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* RANE_DEFS_H */

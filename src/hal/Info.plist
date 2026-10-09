@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleExecutable</key>
+    <string>RaneHAL</string>
+    <key>CFBundleIdentifier</key>
+    <string>org.openrane.sixtyeight.hal</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>RaneHAL</string>
+    <key>CFBundlePackageType</key>
+    <string>BNDL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>CFBundleSignature</key>
+    <string>????</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFPlugInDynamicRegistration</key>
+    <false/>
+    <key>CFPlugInFactories</key>
+    <dict>
+        <key>C1F2D3E4-5A6B-7C8D-9E0F-1A2B3C4D5E6F</key>
+        <string>RaneHALPlugInFactory</string>
+    </dict>
+    <key>CFPlugInTypes</key>
+    <dict>
+        <!-- kAudioServerPlugInTypeUUID -->
+        <key>443ABAB8-E7B3-491A-B985-BEB9187030DB</key>
+        <array>
+            <string>C1F2D3E4-5A6B-7C8D-9E0F-1A2B3C4D5E6F</string>
+        </array>
+    </dict>
+    <key>AudioServerPlugIn_DriverIsSandboxSafe</key>
+    <true/>
+</dict>
+</plist>

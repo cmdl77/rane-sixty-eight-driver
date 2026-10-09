@@ -1,0 +1,20 @@
+# macOS System Files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Build Artifacts
+build/
+dist/
+*.o
+*.a
+*.dylib
+*.driver
+*.app
+*.dSYM/
+
+# Temporary / Log files
+*.log
+*.out
+*.err
+/tmp/

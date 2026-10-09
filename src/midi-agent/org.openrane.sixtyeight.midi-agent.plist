@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>org.openrane.sixtyeight.midi-agent</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Library/Application Support/RaneDriver/RaneMIDIAgent</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardErrorPath</key>
+    <string>/tmp/rane_midi_agent.err</string>
+    <key>StandardOutPath</key>
+    <string>/tmp/rane_midi_agent.out</string>
+</dict>
+</plist>
