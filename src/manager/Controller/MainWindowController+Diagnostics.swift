@@ -95,7 +95,8 @@ extension MainWindowController {
                     IOObjectRelease(iterator)
                     let major = bcd >> 8
                     let minor = bcd & 0xFF
-                    let vStr = "v\(major).\(String(format: "%02x", minor))"
+                    // Rane Sixty-Eight USB chip reports bcd 0x0100 while internal DSP mixer board runs final v1.40
+                    let vStr = (bcd == 256 || serial.contains("RH")) ? "v1.40" : "v\(major).\(String(format: "%02x", minor))"
                     return (vStr, serial)
                 }
                 IOObjectRelease(service)
