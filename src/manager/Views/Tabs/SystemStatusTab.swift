@@ -24,6 +24,7 @@ extension MainWindowController {
         kextStatusLabel = createStatusRow(title: Localization.tr(en: "Legacy Rane Kext:", de: "Legacy Rane Kext:"), stack: statusStack)
         agentStatusLabel = createStatusRow(title: Localization.tr(en: "CoreMIDI LaunchAgent:", de: "CoreMIDI LaunchAgent:"), stack: statusStack)
         deviceStatusLabel = createStatusRow(title: Localization.tr(en: "Connected Mixer:", de: "Angeschlossener Mixer:"), stack: statusStack)
+        firmwareStatusLabel = createStatusRow(title: Localization.tr(en: "Mixer Firmware:", de: "Mixer Firmware:"), stack: statusStack)
 
         let statusCard = statusStack.wrapInCard(padding: NSEdgeInsets(top: 14, left: 18, bottom: 14, right: 18))
         page.addArrangedSubview(statusCard)

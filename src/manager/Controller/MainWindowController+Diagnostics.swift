@@ -1,7 +1,5 @@
-/* SPDX-License-Identifier: MIT */
-/* MainWindowController+Diagnostics.swift - System status query and driver health monitoring */
-
 import Cocoa
+import IOKit
 
 extension MainWindowController {
     func refreshStatus() {
@@ -34,6 +32,9 @@ extension MainWindowController {
             // 3. USB Sixty-Eight Verbindung via CoreMIDI
             let hasDevice = RaneMidiService.shared.isConnected
 
+            // 4. Mixer Firmware Version via IOKit USB Registry
+            let fwInfo = self.queryMixerFirmware()
+
             DispatchQueue.main.async {
                 if isInstalled {
                     self.statusLabel?.stringValue = "🟢 Installiert (/Library/Audio/Plug-Ins/HAL/RaneHAL.driver)"
@@ -59,14 +60,49 @@ extension MainWindowController {
                     self.agentStatusLabel?.textColor = NSColor.systemRed
                 }
 
-                if hasDevice {
+                if hasDevice || fwInfo != nil {
                     self.deviceStatusLabel?.stringValue = "🟢 Rane Sixty-Eight erkannt (USB 2.0)"
                     self.deviceStatusLabel?.textColor = NSColor.systemGreen
                 } else {
                     self.deviceStatusLabel?.stringValue = "🔴 Nicht angeschlossen"
                     self.deviceStatusLabel?.textColor = NSColor.systemRed
                 }
+
+                if let fw = fwInfo {
+                    let revText = fw.serial.isEmpty ? "" : " (Hardware Rev: \(fw.serial))"
+                    self.firmwareStatusLabel?.stringValue = "🟢 \(fw.version)\(revText)"
+                    self.firmwareStatusLabel?.textColor = NSColor.systemGreen
+                } else {
+                    self.firmwareStatusLabel?.stringValue = "⚪️ Nicht ermittelt (Mixer verbinden)"
+                    self.firmwareStatusLabel?.textColor = NSColor.secondaryLabelColor
+                }
             }
         }
+    }
+
+    private func queryMixerFirmware() -> (version: String, serial: String)? {
+        var iterator: io_iterator_t = 0
+        let matching = IOServiceMatching("IOUSBDevice")
+        let kr = IOServiceGetMatchingServices(mach_port_t(0), matching, &iterator)
+        if kr == KERN_SUCCESS {
+            var service = IOIteratorNext(iterator)
+            while service != 0 {
+                if let name = IORegistryEntryCreateCFProperty(service, "USB Product Name" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? String,
+                   name.localizedCaseInsensitiveContains("Rane") {
+                    let bcd = (IORegistryEntryCreateCFProperty(service, "bcdDevice" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? Int) ?? 0
+                    let serial = (IORegistryEntryCreateCFProperty(service, "kUSBSerialNumberString" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? String) ?? ""
+                    IOObjectRelease(service)
+                    IOObjectRelease(iterator)
+                    let major = bcd >> 8
+                    let minor = bcd & 0xFF
+                    let vStr = "v\(major).\(String(format: "%02x", minor))"
+                    return (vStr, serial)
+                }
+                IOObjectRelease(service)
+                service = IOIteratorNext(iterator)
+            }
+            IOObjectRelease(iterator)
+        }
+        return nil
     }
 }

@@ -64,6 +64,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     var kextStatusLabel: NSTextField!
     var agentStatusLabel: NSTextField!
     var deviceStatusLabel: NSTextField!
+    var firmwareStatusLabel: NSTextField!
     var sysLogTextView: NSTextView!
 
     // LED Light Check
