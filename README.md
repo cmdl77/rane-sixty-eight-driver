@@ -64,12 +64,11 @@ If macOS shows an alert stating *"Developer cannot be verified"*:
 
 ## 🛠 Features & Highlights (v2.0.0)
 
-- **22-Kanal Live Audio Pegelanzeige (12 IN / 10 OUT):** Echtzeit VU-Meter für alle 12 Aufnahme-Kanäle (PGM 1–4, FlexFX Send, Main Mix) und 10 Playback-Kanäle (Decks 1–4, FlexFX Return) direkt in der Menüleiste der App bei 48 kHz / 32-Bit Float.
-- **Passiver CoreAudio Live-Monitoring Tap:** Hält den USB-Audiostream aktiv – Pegel schlagen auch dann live aus, wenn keine DAW oder DJ-Software geöffnet ist.
+- **22-Kanal Live Audio Pegelanzeige (12 IN / 10 OUT):** Echtzeit VU-Meter für alle 12 Aufnahme-Kanäle (PGM 1–4, FlexFX Send, Main Mix) und 10 Playback-Kanäle (Decks 1–4, FlexFX Return) direkt im Control Panel bei 48 kHz / 32-Bit Float.
 - **Vollständige PGM 1–4 Hardware-Synchronisation:**
   - **Feld 1:** Physischer Rückseiten-Schalter (`LINE (CD)` vs. `PHONO` vs. `S/PDIF` – CC 112–115).
-  - **Feld 2:** Oberer Kanalzug-Drehschalter (`PH/CD` vs. `USB` vs. `AUX` – CC 116–119).
-  - **Feld 3:** Crossfader-Stellungsanzeige (`A` vs. `POST` vs. `B` – CC 120–123) im einheitlichen Hardware-Badge-Stil.
+  - **Feld 2:** Exakte Drehschalter-Quellenwahl (`PH/CD 1–4`, `USB 1–4`, `AUX 1–4` – CC 116–119).
+  - **Feld 3:** Crossfader-Zuweisung (`CROSSFADER A` vs. `POST` vs. `CROSSFADER B` – CC 120–123) im einheitlichen zentrierten Hardware-Badge-Stil.
 - **Anti-Stutter MIDI-Quittierung & Slider-Drosselung:** Schützt den USB-Bus vor Überlastung beim schnellen Bewegen von Reglern (Phones Tone, LCD-Kontrast).
 - **macOS Menüleisten-Widget (Status Item):** Schneller Zugriff auf Puffergröße/Latenz, Verbindungsstatus und Audio MIDI Setup direkt aus der oberen macOS-Menüleiste.
 - **Zweisprachig (Deutsch & Englisch):** Vollständige Lokalisierung aller Tabs, Tooltips und Systemmenüs inklusive Versionsanzeige `v2.0.0`.

@@ -241,30 +241,41 @@ extension MainWindowController {
             }
         } else if cc >= 116 && cc <= 119 {
             // Hardware Source Rotary Select (PGM 1..4): CC 116..119
-            // 1,2: PH/CD | 3,4: USB | 5,6: AUX
+            // PGM 1 & 2 share sources 1 & 2; PGM 3 & 4 share sources 3 & 4.
+            // 1: PH/CD 1/3, 2: PH/CD 2/4, 3: USB 1/3, 4: USB 2/4, 5: AUX 1/3, 6: AUX 2/4
             let chIdx = Int(cc - 116)
             if chIdx < channels.count {
+                let isLowerChannels = (chIdx < 2)
                 let text: String
                 let color: NSColor
                 switch value {
-                case 1, 2:
-                    text = "PH / CD"
+                case 1:
+                    text = isLowerChannels ? "PH/CD 1" : "PH/CD 3"
                     color = NSColor.systemOrange
-                case 3, 4:
-                    text = "USB"
+                case 2:
+                    text = isLowerChannels ? "PH/CD 2" : "PH/CD 4"
+                    color = NSColor.systemOrange
+                case 3:
+                    text = isLowerChannels ? "USB 1" : "USB 3"
                     color = NSColor.systemTeal
-                case 5, 6:
-                    text = "AUX"
+                case 4:
+                    text = isLowerChannels ? "USB 2" : "USB 4"
+                    color = NSColor.systemTeal
+                case 5:
+                    text = isLowerChannels ? "AUX 1" : "AUX 3"
+                    color = NSColor.systemGreen
+                case 6:
+                    text = isLowerChannels ? "AUX 2" : "AUX 4"
                     color = NSColor.systemGreen
                 default:
-                    text = "PH / CD"
-                    color = NSColor.systemOrange
+                    text = isLowerChannels ? (chIdx == 0 ? "USB 1" : "USB 2") : (chIdx == 2 ? "USB 3" : "USB 4")
+                    color = NSColor.systemTeal
                 }
                 if channels[chIdx].sourceBadge.stringValue != text {
                     channels[chIdx].sourceBadge.stringValue = text
                     channels[chIdx].sourceBadge.textColor = color
                     channels[chIdx].sourceBadge.layer?.backgroundColor = color.withAlphaComponent(0.18).cgColor
-                    appendMidiLog("IN: PGM \(chIdx + 1) Source Rotary -> \(text.trimmingCharacters(in: .whitespaces)) (CC#\(cc)=\(value))")
+                    appendMidiLog("IN: PGM \(chIdx + 1) Source Rotary -> [\(text)] (CC#\(cc)=\(value))")
                 }
             }
         }

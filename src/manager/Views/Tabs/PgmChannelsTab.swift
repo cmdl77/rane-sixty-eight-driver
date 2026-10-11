@@ -90,8 +90,9 @@ extension MainWindowController {
             f2Title.textColor = NSColor.secondaryLabelColor
             f2Title.alignment = .center
 
+            let defaultSourceText = (ch == 1 ? "USB 1" : (ch == 2 ? "USB 2" : (ch == 3 ? "USB 3" : "USB 4")))
             let sourceBadge = PgmBadgeTextField(
-                text: "USB",
+                text: defaultSourceText,
                 font: NSFont.monospacedSystemFont(ofSize: 11, weight: .bold),
                 textColor: NSColor.systemTeal,
                 bgColor: NSColor.systemTeal.withAlphaComponent(0.18),
