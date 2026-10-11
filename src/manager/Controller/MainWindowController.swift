@@ -387,11 +387,15 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             p.isHidden = true
         }
 
-        // 4. Grouped Horizontal Slim Audio VU-Meter Rack (waagerecht schmal darunter)
+        // 4. Grouped Horizontal Slim Audio VU-Meter Rack (eingebettet in dunklem Inset-Fenster mit 14pt Padding)
         ioMonitorBar = RaneIOMonitorBarView()
-        mainStack.addArrangedSubview(ioMonitorBar)
-        ioMonitorBar.leadingAnchor.constraint(equalTo: mainStack.leadingAnchor).isActive = true
-        ioMonitorBar.trailingAnchor.constraint(equalTo: mainStack.trailingAnchor).isActive = true
+        let meterInsetCard = ioMonitorBar.wrapInInsetCard(
+            cornerRadius: 12,
+            padding: NSEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
+        )
+        mainStack.addArrangedSubview(meterInsetCard)
+        meterInsetCard.leadingAnchor.constraint(equalTo: mainStack.leadingAnchor).isActive = true
+        meterInsetCard.trailingAnchor.constraint(equalTo: mainStack.trailingAnchor).isActive = true
 
         onTabChanged()
         setControlsEnabled(RaneMidiService.shared.isConnected)
@@ -424,11 +428,11 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
     private func targetWindowHeight(for index: Int) -> CGFloat {
         switch index {
-        case 0: return 680   // Mixer Audio
-        case 1: return 650   // PGM Channels 1–4
-        case 2: return 665   // Live MIDI
-        case 3: return 660   // System Status
-        default: return 670
+        case 0: return 705   // Mixer Audio
+        case 1: return 675   // PGM Channels 1–4
+        case 2: return 685   // Live MIDI
+        case 3: return 685   // System Status
+        default: return 695
         }
     }
 
