@@ -130,8 +130,11 @@ class HorizontalStereoMeterView: NSView {
 
     private func setupUI() {
         wantsLayer = true
-        layer?.cornerRadius = 5
-        layer?.backgroundColor = NSColor(white: 0.12, alpha: 0.40).cgColor
+        layer?.cornerRadius = 6
+        layer?.masksToBounds = true
+        layer?.borderWidth = 1.0
+        layer?.borderColor = NSColor(white: 0.26, alpha: 0.50).cgColor
+        layer?.backgroundColor = NSColor(red: 0.125, green: 0.129, blue: 0.145, alpha: 0.90).cgColor
         translatesAutoresizingMaskIntoConstraints = false
 
         let topRow = NSStackView()
@@ -165,13 +168,13 @@ class HorizontalStereoMeterView: NSView {
         mainStack.orientation = .vertical
         mainStack.alignment = .leading
         mainStack.spacing = 3
-        mainStack.edgeInsets = NSEdgeInsets(top: 4, left: 6, bottom: 4, right: 6)
+        mainStack.edgeInsets = NSEdgeInsets(top: 5, left: 8, bottom: 5, right: 8)
         mainStack.translatesAutoresizingMaskIntoConstraints = false
 
         mainStack.addArrangedSubview(topRow)
         mainStack.addArrangedSubview(barStack)
-        topRow.widthAnchor.constraint(equalTo: mainStack.widthAnchor, constant: -12).isActive = true
-        barStack.widthAnchor.constraint(equalTo: mainStack.widthAnchor, constant: -12).isActive = true
+        topRow.widthAnchor.constraint(equalTo: mainStack.widthAnchor, constant: -16).isActive = true
+        barStack.widthAnchor.constraint(equalTo: mainStack.widthAnchor, constant: -16).isActive = true
 
         addSubview(mainStack)
         NSLayoutConstraint.activate([
@@ -252,18 +255,18 @@ class RaneIOMonitorBarView: NSView {
 
     private func setupUI() {
         wantsLayer = true
-        layer?.cornerRadius = 10
+        layer?.cornerRadius = 12
         layer?.masksToBounds = true
         layer?.borderWidth = 1.0
-        layer?.borderColor = NSColor(white: 0.22, alpha: 0.6).cgColor
-        layer?.backgroundColor = NSColor(red: 0.122, green: 0.125, blue: 0.141, alpha: 1.0).cgColor
+        layer?.borderColor = NSColor(white: 0.28, alpha: 0.45).cgColor
+        layer?.backgroundColor = NSColor(red: 0.176, green: 0.180, blue: 0.200, alpha: 1.0).cgColor
         translatesAutoresizingMaskIntoConstraints = false
 
         let rootStack = NSStackView()
         rootStack.orientation = .vertical
         rootStack.alignment = .leading
         rootStack.spacing = 8
-        rootStack.edgeInsets = NSEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
+        rootStack.edgeInsets = NSEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
         rootStack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(rootStack)
 
@@ -290,12 +293,12 @@ class RaneIOMonitorBarView: NSView {
 
         let headerTitle = NSTextField(labelWithString: Localization.tr(en: "LIVE AUDIO I/O MONITOR", de: "LIVE AUDIO PEGELANZEIGE"))
         headerTitle.font = NSFont.systemFont(ofSize: 10.5, weight: .black)
-        headerTitle.textColor = NSColor(white: 0.85, alpha: 1.0)
+        headerTitle.textColor = NSColor(white: 0.90, alpha: 1.0)
         headerRow.addArrangedSubview(headerTitle)
 
-        let headerSub = NSTextField(labelWithString: Localization.tr(en: "22 CHANNELS (12 IN / 10 OUT)", de: "22 KANÄLE (12 IN / 10 OUT)"))
+        let headerSub = NSTextField(labelWithString: Localization.tr(en: "22 CHANNELS (10 OUT / 12 IN)", de: "22 KANÄLE (10 OUT / 12 IN)"))
         headerSub.font = NSFont.systemFont(ofSize: 9.5, weight: .medium)
-        headerSub.textColor = NSColor(white: 0.50, alpha: 1.0)
+        headerSub.textColor = NSColor(white: 0.55, alpha: 1.0)
         headerRow.addArrangedSubview(headerSub)
 
         let gap = NSView()
@@ -312,38 +315,7 @@ class RaneIOMonitorBarView: NSView {
         rootStack.addArrangedSubview(headerRow)
         headerRow.widthAnchor.constraint(equalTo: rootStack.widthAnchor).isActive = true
 
-        // 2. INPUTS SECTION (Top Row - 6 Stereo Pairs)
-        let inRowHeader = NSStackView()
-        inRowHeader.orientation = .horizontal
-        inRowHeader.alignment = .centerY
-        inRowHeader.spacing = 6
-        let inTag = NSTextField(labelWithString: Localization.tr(en: "  INPUTS (USB RECORD) – 12 CHANNELS (6 PAIRS)  ", de: "  EINGÄNGE (RECORD) – 12 KANÄLE (6 STEREO-PAARE)  "))
-        inTag.font = NSFont.boldSystemFont(ofSize: 9.0)
-        inTag.textColor = NSColor.systemGreen
-        inTag.wantsLayer = true
-        inTag.layer?.backgroundColor = NSColor.systemGreen.withAlphaComponent(0.15).cgColor
-        inTag.layer?.cornerRadius = 3
-        inRowHeader.addArrangedSubview(inTag)
-        rootStack.addArrangedSubview(inRowHeader)
-
-        let inGrid = NSStackView()
-        inGrid.orientation = .horizontal
-        inGrid.distribution = .fillEqually
-        inGrid.spacing = 8
-        inGrid.translatesAutoresizingMaskIntoConstraints = false
-        for m in inMeters {
-            inGrid.addArrangedSubview(m)
-        }
-        rootStack.addArrangedSubview(inGrid)
-        inGrid.widthAnchor.constraint(equalTo: rootStack.widthAnchor).isActive = true
-
-        // 3. Thin separator
-        let sep = NSBox()
-        sep.boxType = .separator
-        rootStack.addArrangedSubview(sep)
-        sep.widthAnchor.constraint(equalTo: rootStack.widthAnchor).isActive = true
-
-        // 4. OUTPUTS SECTION (Bottom Row - 5 Stereo Pairs)
+        // 2. OUTPUTS SECTION (Top Row - 5 Stereo Pairs)
         let outRowHeader = NSStackView()
         outRowHeader.orientation = .horizontal
         outRowHeader.alignment = .centerY
@@ -352,7 +324,7 @@ class RaneIOMonitorBarView: NSView {
         outTag.font = NSFont.boldSystemFont(ofSize: 9.0)
         outTag.textColor = NSColor.systemBlue
         outTag.wantsLayer = true
-        outTag.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.15).cgColor
+        outTag.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.18).cgColor
         outTag.layer?.cornerRadius = 3
         outRowHeader.addArrangedSubview(outTag)
         rootStack.addArrangedSubview(outRowHeader)
@@ -367,6 +339,37 @@ class RaneIOMonitorBarView: NSView {
         }
         rootStack.addArrangedSubview(outGrid)
         outGrid.widthAnchor.constraint(equalTo: rootStack.widthAnchor).isActive = true
+
+        // 3. Thin separator
+        let sep = NSBox()
+        sep.boxType = .separator
+        rootStack.addArrangedSubview(sep)
+        sep.widthAnchor.constraint(equalTo: rootStack.widthAnchor).isActive = true
+
+        // 4. INPUTS SECTION (Bottom Row - 6 Stereo Pairs)
+        let inRowHeader = NSStackView()
+        inRowHeader.orientation = .horizontal
+        inRowHeader.alignment = .centerY
+        inRowHeader.spacing = 6
+        let inTag = NSTextField(labelWithString: Localization.tr(en: "  INPUTS (USB RECORD) – 12 CHANNELS (6 PAIRS)  ", de: "  EINGÄNGE (RECORD) – 12 KANÄLE (6 STEREO-PAARE)  "))
+        inTag.font = NSFont.boldSystemFont(ofSize: 9.0)
+        inTag.textColor = NSColor.systemGreen
+        inTag.wantsLayer = true
+        inTag.layer?.backgroundColor = NSColor.systemGreen.withAlphaComponent(0.18).cgColor
+        inTag.layer?.cornerRadius = 3
+        inRowHeader.addArrangedSubview(inTag)
+        rootStack.addArrangedSubview(inRowHeader)
+
+        let inGrid = NSStackView()
+        inGrid.orientation = .horizontal
+        inGrid.distribution = .fillEqually
+        inGrid.spacing = 8
+        inGrid.translatesAutoresizingMaskIntoConstraints = false
+        for m in inMeters {
+            inGrid.addArrangedSubview(m)
+        }
+        rootStack.addArrangedSubview(inGrid)
+        inGrid.widthAnchor.constraint(equalTo: rootStack.widthAnchor).isActive = true
     }
 
     private func connectService() {
