@@ -62,6 +62,11 @@ static void register_outgoing_midi(const uint8_t* data, size_t len) {
     size_t offset = 0;
     while (offset < len) {
         uint8_t st = data[offset];
+        if (st >= 0xF8) {
+            /* Realtime messages (Clock, Start, Stop) must never pollute echo table */
+            offset++;
+            continue;
+        }
         int mLen = midi_msg_len(st);
         if (mLen <= 0 || offset + mLen > len) {
             mLen = (len - offset > 4) ? 4 : (int)(len - offset);
@@ -147,8 +152,17 @@ static void midiReadProc(const MIDIPacketList *pktlist, void *readProcRefCon, vo
                 pkt[5] = (uint8_t)copyLen;
                 memcpy(&pkt[6], packet->data, copyLen);
                 IOReturn kr = IOHIDDeviceSetReport(dev, kIOHIDReportTypeOutput, 0, pkt, 64);
-                RLOG("CoreMIDI Out -> HID (kr=0x%08x): %zu bytes: %02X %02X %02X",
-                     kr, copyLen, packet->data[0], (copyLen > 1 ? packet->data[1] : 0), (copyLen > 2 ? packet->data[2] : 0));
+                static std::atomic<uint32_t> sClockLogCount{0};
+                if (packet->data[0] < 0xF8) {
+                    RLOG("CoreMIDI Out -> HID (kr=0x%08x): %zu bytes: %02X %02X %02X",
+                         kr, copyLen, packet->data[0], (copyLen > 1 ? packet->data[1] : 0), (copyLen > 2 ? packet->data[2] : 0));
+                } else if (packet->data[0] == 0xF8) {
+                    if ((sClockLogCount.fetch_add(1) % 96) == 0) { // Log once every 4 beats at 24 ppqn
+                        RLOG("CoreMIDI Out -> HID: Clock 0xF8 active (kr=0x%08x, seq=%u)", kr, seq);
+                    }
+                } else {
+                    RLOG("CoreMIDI Out -> HID Realtime (kr=0x%08x): %02X", kr, packet->data[0]);
+                }
             }
             packet = MIDIPacketNext(packet);
         }
