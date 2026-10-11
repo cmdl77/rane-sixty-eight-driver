@@ -10,6 +10,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     var headerStatusBadge: NSTextField!
     var segmentedNav: NSSegmentedControl!
     var contentContainer: NSView!
+    var ioMonitorBar: RaneIOMonitorBarView!
 
     // Page Views
     var prefsView: NSView!
@@ -25,6 +26,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     var highToneBadge: NSTextField!
     var usb6RecordSegment: NSSegmentedControl!
     var backlightSwitch: NSSwitch!
+    var controlPointSegment: NSSegmentedControl!
     var lcdContrastSlider: NSSlider!
     var lcdContrastBadge: NSTextField!
     var bufferSizePopup: NSPopUpButton!
@@ -93,7 +95,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
     convenience init() {
         let mask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 940, height: 550),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 940, height: 680),
                               styleMask: mask,
                               backing: .buffered,
                               defer: false)
@@ -104,7 +106,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         window.appearance = NSAppearance(named: .darkAqua)
         window.backgroundColor = NSColor(red: 0.137, green: 0.141, blue: 0.157, alpha: 1.0)
         window.center()
-        window.minSize = NSSize(width: 880, height: 480)
+        window.minSize = NSSize(width: 880, height: 580)
 
         self.init(window: window)
         MainWindowController.shared = self
@@ -128,13 +130,16 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         let highVal = highToneSlider?.integerValue ?? 64
         let lcdVal = lcdContrastSlider?.integerValue ?? 64
         let backlightState = backlightSwitch?.state ?? .on
+        let controlPointIdx = controlPointSegment?.selectedSegment ?? 0
         let usb6Seg = usb6RecordSegment?.selectedSegment ?? 0
         let bufSizeIdx = bufferSizePopup?.indexOfSelectedItem ?? 2
 
         let pgmSensIndices = channels.map { $0.phonoPopup.indexOfSelectedItem }
         let pgmResIndices = channels.map { $0.resonanceSegment.selectedSegment }
         let pgmRecIndices = channels.map { $0.recordSegment.selectedSegment }
-        let pgmInputBadges = channels.map { ($0.inputBadge.stringValue, $0.inputBadge.textColor, $0.inputBadge.layer?.backgroundColor) }
+        let pgmXfaderBadges = channels.map { ($0.crossfaderBadge.stringValue, $0.crossfaderBadge.textColor, $0.crossfaderBadge.layer?.backgroundColor) }
+        let pgmInputTypeBadges = channels.map { ($0.inputTypeBadge.stringValue, $0.inputTypeBadge.textColor, $0.inputTypeBadge.layer?.backgroundColor) }
+        let pgmSourceBadges = channels.map { ($0.sourceBadge.stringValue, $0.sourceBadge.textColor, $0.sourceBadge.layer?.backgroundColor) }
 
         let outMidiIdx = midiOutPopup?.indexOfSelectedItem ?? 0
         let inMidiIdx = midiInPopup?.indexOfSelectedItem ?? 16
@@ -164,6 +169,8 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         lcdContrastBadge.stringValue = "\(pct)%"
 
         backlightSwitch.state = backlightState
+
+        controlPointSegment.selectedSegment = controlPointIdx
         usb6RecordSegment.selectedSegment = usb6Seg
         if bufSizeIdx < bufferSizePopup.numberOfItems {
             bufferSizePopup.selectItem(at: bufSizeIdx)
@@ -179,10 +186,20 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             if i < pgmRecIndices.count {
                 ch.recordSegment.selectedSegment = pgmRecIndices[i]
             }
-            if i < pgmInputBadges.count {
-                ch.inputBadge.stringValue = pgmInputBadges[i].0
-                ch.inputBadge.textColor = pgmInputBadges[i].1
-                ch.inputBadge.layer?.backgroundColor = pgmInputBadges[i].2
+            if i < pgmXfaderBadges.count {
+                ch.crossfaderBadge.stringValue = pgmXfaderBadges[i].0
+                ch.crossfaderBadge.textColor = pgmXfaderBadges[i].1
+                ch.crossfaderBadge.layer?.backgroundColor = pgmXfaderBadges[i].2
+            }
+            if i < pgmInputTypeBadges.count {
+                ch.inputTypeBadge.stringValue = pgmInputTypeBadges[i].0
+                ch.inputTypeBadge.textColor = pgmInputTypeBadges[i].1
+                ch.inputTypeBadge.layer?.backgroundColor = pgmInputTypeBadges[i].2
+            }
+            if i < pgmSourceBadges.count {
+                ch.sourceBadge.stringValue = pgmSourceBadges[i].0
+                ch.sourceBadge.textColor = pgmSourceBadges[i].1
+                ch.sourceBadge.layer?.backgroundColor = pgmSourceBadges[i].2
             }
         }
 
@@ -298,7 +315,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         brandTitleLabel.textColor = NSColor.white
         headerStack.addArrangedSubview(brandTitleLabel)
 
-        let panelSubtitleLabel = NSTextField(labelWithString: "Control Panel")
+        let panelSubtitleLabel = NSTextField(labelWithString: "Control Panel v2.0.0")
         panelSubtitleLabel.font = NSFont.systemFont(ofSize: 15, weight: .light)
         panelSubtitleLabel.textColor = NSColor(white: 0.82, alpha: 1.0)
         headerStack.addArrangedSubview(panelSubtitleLabel)
@@ -356,6 +373,12 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             p.isHidden = true
         }
 
+        // 4. Grouped Horizontal Slim Audio VU-Meter Rack (waagerecht schmal darunter)
+        ioMonitorBar = RaneIOMonitorBarView()
+        mainStack.addArrangedSubview(ioMonitorBar)
+        ioMonitorBar.leadingAnchor.constraint(equalTo: mainStack.leadingAnchor).isActive = true
+        ioMonitorBar.trailingAnchor.constraint(equalTo: mainStack.trailingAnchor).isActive = true
+
         onTabChanged()
         setControlsEnabled(RaneMidiService.shared.isConnected)
     }
@@ -387,11 +410,11 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
     private func targetWindowHeight(for index: Int) -> CGFloat {
         switch index {
-        case 0: return 550   // Mixer Audio
-        case 1: return 520   // PGM Channels 1–4
-        case 2: return 535   // Live MIDI
-        case 3: return 530   // System Status
-        default: return 540
+        case 0: return 680   // Mixer Audio
+        case 1: return 650   // PGM Channels 1–4
+        case 2: return 665   // Live MIDI
+        case 3: return 660   // System Status
+        default: return 670
         }
     }
 

@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: MIT */
-/* rane_codec.c - 16-channel 24-bit PCM codec implementation */
+/* rane_codec.c - Multi-channel 24-bit PCM codec implementation */
 
 #include "rane_codec.h"
 #include <math.h>
@@ -19,20 +19,20 @@ static inline float s24_to_float(int32_t v) {
     return (float)extended * kInvS24Scale;
 }
 
-void rane_encode_frame_float_to_s24(uint8_t *dstS24Frame, const float *srcFloat16Ch) {
-    for (int ch = 0; ch < RANE_CHANNELS; ++ch) {
-        int32_t val = float_to_s24(srcFloat16Ch[ch]);
+void rane_encode_frame_float_to_s24(uint8_t *dstS24Frame, const float *srcFloat, int channels) {
+    for (int ch = 0; ch < channels; ++ch) {
+        int32_t val = float_to_s24(srcFloat[ch]);
         dstS24Frame[ch * 3 + 0] = (uint8_t)(val & 0xFF);
         dstS24Frame[ch * 3 + 1] = (uint8_t)((val >> 8) & 0xFF);
         dstS24Frame[ch * 3 + 2] = (uint8_t)((val >> 16) & 0xFF);
     }
 }
 
-void rane_decode_frame_s24_to_float(float *dstFloat16Ch, const uint8_t *srcS24Frame) {
-    for (int ch = 0; ch < RANE_CHANNELS; ++ch) {
+void rane_decode_frame_s24_to_float(float *dstFloat, const uint8_t *srcS24Frame, int channels) {
+    for (int ch = 0; ch < channels; ++ch) {
         int32_t val = (int32_t)srcS24Frame[ch * 3 + 0] |
                       ((int32_t)srcS24Frame[ch * 3 + 1] << 8) |
                       ((int32_t)srcS24Frame[ch * 3 + 2] << 16);
-        dstFloat16Ch[ch] = s24_to_float(val);
+        dstFloat[ch] = s24_to_float(val);
     }
 }

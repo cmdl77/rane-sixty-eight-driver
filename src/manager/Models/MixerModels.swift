@@ -11,10 +11,12 @@ struct PendingControlChange {
 struct PgmChannelControls {
     let channelNumber: Int
     let container: NSView
-    let inputBadge: NSTextField
+    let inputTypeBadge: NSTextField   // Feld 1: LINE (CD) / PHONO / S/PDIF (CC 112..115)
+    let sourceBadge: NSTextField      // Feld 2: PH/CD / USB / AUX (CC 116..119)
     let phonoPopup: NSPopUpButton
     let resonanceSegment: NSSegmentedControl
     let recordSegment: NSSegmentedControl
+    let crossfaderBadge: NSTextField  // Feld 3: Crossfader A / POST / B (CC 120..123)
 }
 
 struct LedTestItem {

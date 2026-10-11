@@ -19,8 +19,8 @@ IOUSBLibTransport& IOUSBLibTransport::shared() {
 }
 
 IOUSBLibTransport::IOUSBLibTransport() {
-    mInRing.init(kRingBytes);
-    mOutRing.init(kRingBytes);
+    mInRing.init(kInRingBytes, kInChannels * sizeof(float));
+    mOutRing.init(kOutRingBytes, kOutChannels * sizeof(float));
 
     for (uint32_t i = 0; i < kDoubleBuffer; i++) {
         mOutSlotInFlight[i].store(false);
@@ -706,13 +706,13 @@ bool IOUSBLibTransport::submitOut(uint32_t slot) {
     }
     mFeedbackHead.store(fHead, std::memory_order_release);
 
-    float floatFrames[kUFramesPerXfer * kMaxFramesPerUF * kChannels];
-    size_t wantBytes = (size_t)totalFrames * kChannels * sizeof(float);
+    float floatFrames[kUFramesPerXfer * kMaxFramesPerUF * kOutChannels];
+    size_t wantBytes = (size_t)totalFrames * kOutChannels * sizeof(float);
 
     /* Dynamic pre-roll watermark: cushion based on host period (at least 2 host cycles) */
     uint32_t watermarkFrames = std::max((uint32_t)256, hostFrames * 2);
     if (watermarkFrames > 2048) watermarkFrames = 2048;
-    size_t watermarkBytes = (size_t)watermarkFrames * kChannels * sizeof(float);
+    size_t watermarkBytes = (size_t)watermarkFrames * kOutChannels * sizeof(float);
 
     if (!mOutPrerolled.load(std::memory_order_relaxed)) {
         size_t avail = mOutRing.availableRead();
@@ -721,7 +721,7 @@ bool IOUSBLibTransport::submitOut(uint32_t slot) {
         } else {
             mOutPrerolled.store(true, std::memory_order_release);
             RLOG("OUT buffer watermark reached (%zu bytes / %u frames). Playback started.",
-                 avail, (uint32_t)(avail / (kChannels * sizeof(float))));
+                 avail, (uint32_t)(avail / (kOutChannels * sizeof(float))));
             size_t poppedBytes = mOutRing.pop((uint8_t*)floatFrames, wantBytes);
             if (poppedBytes < wantBytes) {
                 memset((uint8_t*)floatFrames + poppedBytes, 0, wantBytes - poppedBytes);
@@ -742,15 +742,11 @@ bool IOUSBLibTransport::submitOut(uint32_t slot) {
              totalFrames, mOutRing.availableRead(), (int)mOutPrerolled.load());
     }
 
-    // Map Traktor / CoreAudio stereo pairs to Sixty-Eight physical mixer channels:
-    static const uint32_t kWireOutMap[10] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
-
     float* dstFloat = (float*)mOutBuf[slot];
     for (uint32_t f = 0; f < totalFrames; f++) {
-        const float* src = &floatFrames[f * kChannels];
+        const float* src = &floatFrames[f * kOutChannels];
         for (uint32_t w = 0; w < kWireOutCh; w++) {
-            uint32_t srcCh = kWireOutMap[w];
-            *dstFloat++ = rane_clamp_float(src[srcCh]);
+            *dstFloat++ = rane_clamp_float(src[w]);
         }
     }
 
@@ -917,7 +913,7 @@ void IOUSBLibTransport::onInComplete(uint32_t slot, IOReturn result, uint32_t by
 
     UInt16 stride = (UInt16)((mInMaxPkt > 0 && mInMaxPkt <= kMaxUFrameBytes) ? mInMaxPkt
                                                                               : kMaxFramesPerUF * kWireInFrameBytes);
-    float floatFrames[kUFramesPerXfer * kMaxFramesPerUF * kChannels];
+    float floatFrames[kUFramesPerXfer * kMaxFramesPerUF * kInChannels];
     uint32_t nFrames = 0;
     for (uint32_t i = 0; i < kUFramesPerXfer; i++) {
         const IOUSBIsocFrame& fr = mInIsochFrames[slot][i];
@@ -937,18 +933,10 @@ void IOUSBLibTransport::onInComplete(uint32_t slot, IOReturn result, uint32_t by
         }
 
         const float* srcFloat = (const float*)(mInBuf[slot] + (size_t)i * stride);
-        // Sixty-Eight Wire IN channel mapping (symmetric with OUT):
-        static const uint32_t kWireInMap[12] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 };
         for (uint32_t k = 0; k < cnt; k++) {
-            float* dst = &floatFrames[nFrames * kChannels];
-            for (uint32_t ch = 0; ch < kChannels; ch++) {
-                dst[ch] = 0.0f;
-            }
-            for (uint32_t w = 0; w < kWireInCh; w++) {
-                uint32_t dstCh = kWireInMap[w];
-                if (dstCh < kChannels) {
-                    dst[dstCh] = srcFloat[w];
-                }
+            float* dst = &floatFrames[nFrames * kInChannels];
+            for (uint32_t w = 0; w < kInChannels; w++) {
+                dst[w] = srcFloat[w];
             }
             srcFloat += kWireInCh;
             nFrames++;
@@ -956,7 +944,7 @@ void IOUSBLibTransport::onInComplete(uint32_t slot, IOReturn result, uint32_t by
     }
 
     if (nFrames > 0) {
-        mInRing.push((const uint8_t*)floatFrames, (size_t)nFrames * kChannels * sizeof(float));
+        mInRing.push((const uint8_t*)floatFrames, (size_t)nFrames * kInChannels * sizeof(float));
     }
     submitIn(slot);
 }
@@ -974,21 +962,21 @@ void IOUSBLibTransport::onMidiInComplete(uint32_t slot, IOReturn result, uint32_
     }
 }
 
-void IOUSBLibTransport::readInput(uint64_t sampleTime, uint32_t frames, float *dstFloat16Ch) {
+void IOUSBLibTransport::readInput(uint64_t sampleTime, uint32_t frames, float *dstFloatIn) {
     (void)sampleTime;
-    size_t reqBytes = frames * sizeof(float) * kChannels;
-    size_t readBytes = mInRing.pop((uint8_t*)dstFloat16Ch, reqBytes);
+    size_t reqBytes = frames * sizeof(float) * kInChannels;
+    size_t readBytes = mInRing.pop((uint8_t*)dstFloatIn, reqBytes);
     if (readBytes < reqBytes) {
-        memset((uint8_t*)dstFloat16Ch + readBytes, 0, reqBytes - readBytes);
+        memset((uint8_t*)dstFloatIn + readBytes, 0, reqBytes - readBytes);
     }
 }
 
-void IOUSBLibTransport::writeOutput(uint64_t sampleTime, uint32_t frames, const float *srcFloat16Ch) {
+void IOUSBLibTransport::writeOutput(uint64_t sampleTime, uint32_t frames, const float *srcFloatOut) {
     (void)sampleTime;
     if (frames > 0) {
         mHostPeriodFrames.store(frames, std::memory_order_relaxed);
-        size_t writeBytes = frames * sizeof(float) * kChannels;
-        mOutRing.push((const uint8_t*)srcFloat16Ch, writeBytes);
+        size_t writeBytes = frames * sizeof(float) * kOutChannels;
+        mOutRing.push((const uint8_t*)srcFloatOut, writeBytes);
     }
 }
 

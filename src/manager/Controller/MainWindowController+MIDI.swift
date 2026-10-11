@@ -33,6 +33,7 @@ extension MainWindowController {
         lowToneSlider?.isEnabled = enabled
         highToneSlider?.isEnabled = enabled
         usb6RecordSegment?.isEnabled = enabled
+        controlPointSegment?.isEnabled = enabled
         bufferSizePopup?.isEnabled = enabled
 
         // Tab 2: PGM Channels 1–4 Controls
@@ -68,6 +69,11 @@ extension MainWindowController {
             usbStatusBadge?.stringValue = Localization.tr(en: "  ● Port A Active (48 kHz Float)  ", de: "  ● Port A Aktiv (48 kHz Float)  ")
             usbStatusBadge?.textColor = NSColor.systemGreen
             usbStatusBadge?.layer?.backgroundColor = NSColor.systemGreen.withAlphaComponent(0.15).cgColor
+
+            // Default USB-6 Record to Main Mix (CC 33 = 1 and CC 35 = 1)
+            sendUserCC(cc: 33, value: 1)
+            sendUserCC(cc: 35, value: 1)
+            RaneMeterService.shared.startAudioMonitoring()
         } else {
             headerStatusBadge?.stringValue = Localization.tr(en: "  ● Disconnected  ", de: "  ● Getrennt  ")
             headerStatusBadge?.textColor = NSColor.systemRed
@@ -76,6 +82,8 @@ extension MainWindowController {
             usbStatusBadge?.stringValue = Localization.tr(en: "  ● Offline  ", de: "  ● Offline  ")
             usbStatusBadge?.textColor = NSColor.systemRed
             usbStatusBadge?.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.15).cgColor
+
+            RaneMeterService.shared.stopAudioMonitoring()
         }
     }
 
@@ -140,10 +148,11 @@ extension MainWindowController {
                     text = "  LINE (CD)  "
                     color = NSColor.systemBlue
                 }
-                if channels[chIdx].inputBadge.stringValue != text {
-                    channels[chIdx].inputBadge.stringValue = text
-                    channels[chIdx].inputBadge.textColor = color
-                    channels[chIdx].inputBadge.layer?.backgroundColor = color.withAlphaComponent(0.18).cgColor
+                if channels[chIdx].inputTypeBadge.stringValue != text {
+                    channels[chIdx].inputTypeBadge.stringValue = text
+                    channels[chIdx].inputTypeBadge.textColor = color
+                    channels[chIdx].inputTypeBadge.layer?.backgroundColor = color.withAlphaComponent(0.18).cgColor
+                    appendMidiLog("IN: PGM \(chIdx + 1) Input Select -> \(text.trimmingCharacters(in: .whitespaces)) (CC#\(cc)=\(value))")
                 }
             }
         } else if cc == 36 {
@@ -206,6 +215,59 @@ extension MainWindowController {
                 let seg = Int(value - 1)
                 if channels[chIdx].recordSegment.selectedSegment != seg {
                     channels[chIdx].recordSegment.selectedSegment = seg
+                }
+            }
+        } else if cc >= 120 && cc <= 123 {
+            // Crossfader Select (PGM 1..4): CC 120..123
+            // 1: Crossfader A, 2: Crossfader B, 3: Post-Crossfader
+            let chIdx = Int(cc - 120)
+            if chIdx < channels.count {
+                let text: String
+                let color: NSColor
+                switch value {
+                case 1:
+                    text = "  CROSSFADER A  "
+                    color = NSColor.systemOrange
+                case 2:
+                    text = "  CROSSFADER B  "
+                    color = NSColor.systemBlue
+                default:
+                    text = "      POST      "
+                    color = NSColor(white: 0.88, alpha: 1.0)
+                }
+                if channels[chIdx].crossfaderBadge.stringValue != text {
+                    channels[chIdx].crossfaderBadge.stringValue = text
+                    channels[chIdx].crossfaderBadge.textColor = color
+                    channels[chIdx].crossfaderBadge.layer?.backgroundColor = color.withAlphaComponent(0.18).cgColor
+                    appendMidiLog("IN: PGM \(chIdx + 1) Crossfader -> [\(text.trimmingCharacters(in: .whitespaces))] (CC#\(cc)=\(value))")
+                }
+            }
+        } else if cc >= 116 && cc <= 119 {
+            // Hardware Source Rotary Select (PGM 1..4): CC 116..119
+            // 1,2: PH/CD | 3,4: USB | 5,6: AUX
+            let chIdx = Int(cc - 116)
+            if chIdx < channels.count {
+                let text: String
+                let color: NSColor
+                switch value {
+                case 1, 2:
+                    text = "  PH / CD  "
+                    color = NSColor.systemOrange
+                case 3, 4:
+                    text = "    USB    "
+                    color = NSColor.systemTeal
+                case 5, 6:
+                    text = "    AUX    "
+                    color = NSColor.systemGreen
+                default:
+                    text = "  PH / CD  "
+                    color = NSColor.systemOrange
+                }
+                if channels[chIdx].sourceBadge.stringValue != text {
+                    channels[chIdx].sourceBadge.stringValue = text
+                    channels[chIdx].sourceBadge.textColor = color
+                    channels[chIdx].sourceBadge.layer?.backgroundColor = color.withAlphaComponent(0.18).cgColor
+                    appendMidiLog("IN: PGM \(chIdx + 1) Source Rotary -> \(text.trimmingCharacters(in: .whitespaces)) (CC#\(cc)=\(value))")
                 }
             }
         }

@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: MIT */
-/* RaneHALPlugin.cpp - CoreAudio AudioServerPlugIn for Rane Sixty-Eight (16x16 Channels). */
+/* RaneHALPlugin.cpp - CoreAudio AudioServerPlugIn for Rane Sixty-Eight (12 In / 10 Out Channels). */
 
 #include <CoreAudio/AudioServerPlugIn.h>
 #include <CoreAudio/AudioHardware.h>
@@ -7,7 +7,13 @@
 #include <mach/mach_time.h>
 #include <os/log.h>
 #include <pthread.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
 #include <atomic>
+#include <cmath>
 #include <cstring>
 
 #include "../engine/StreamEngine.h"
@@ -15,14 +21,75 @@
 
 #define RLOG(fmt, ...) os_log(OS_LOG_DEFAULT, "[RaneHALPlugin] " fmt, ##__VA_ARGS__)
 
+#pragma pack(push, 4)
+struct RaneSharedMeters {
+    uint32_t magic;           // 0x52414E45 ('RANE')
+    uint32_t version;         // 1
+    uint64_t sequence;        // Monotonic counter
+    uint64_t timestampNs;     // mach_absolute_time
+    uint32_t sampleRate;      // e.g. 48000
+    uint32_t bufferFrameSize; // e.g. 512
+    uint32_t isRunning;       // 1 if active, 0 if stopped
+    uint32_t inChannels;      // 12
+    uint32_t outChannels;     // 10
+    uint32_t reserved;        // Padding / alignment
+    float    inPeaks[12];     // Inputs 1..12 (6 stereo pairs)
+    float    outPeaks[10];    // Outputs 1..10 (5 stereo pairs)
+};
+#pragma pack(pop)
+
+static RaneSharedMeters* gSharedMeters = nullptr;
+static int gSharedMetersFd = -1;
+
+static void InitSharedMeters() {
+    if (gSharedMeters) return;
+    const char* path = "/var/tmp/rane_audio_meters.bin";
+    int fd = open(path, O_RDWR | O_CREAT, 0666);
+    if (fd < 0) {
+        RLOG("Failed to open shared meters file %s (errno %d)", path, errno);
+        return;
+    }
+    fchmod(fd, 0666);
+    if (ftruncate(fd, sizeof(RaneSharedMeters)) != 0) {
+        RLOG("Failed to truncate shared meters file (errno %d)", errno);
+    }
+    void* ptr = mmap(nullptr, sizeof(RaneSharedMeters), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (ptr == MAP_FAILED) {
+        RLOG("Failed to mmap shared meters file (errno %d)", errno);
+        close(fd);
+        return;
+    }
+    gSharedMetersFd = fd;
+    gSharedMeters = (RaneSharedMeters*)ptr;
+    gSharedMeters->magic = 0x52414E45;
+    gSharedMeters->version = 1;
+    gSharedMeters->sequence = 0;
+    gSharedMeters->timestampNs = mach_absolute_time();
+    gSharedMeters->sampleRate = 48000;
+    gSharedMeters->bufferFrameSize = 512;
+    gSharedMeters->isRunning = 0;
+    gSharedMeters->inChannels = 12;
+    gSharedMeters->outChannels = 10;
+    gSharedMeters->reserved = 0;
+    for (int i = 0; i < 12; i++) {
+        gSharedMeters->inPeaks[i] = 0.0f;
+    }
+    for (int i = 0; i < 10; i++) {
+        gSharedMeters->outPeaks[i] = 0.0f;
+    }
+    RLOG("Shared meters initialized successfully at %s (%zu bytes, 12 In / 10 Out)", path, sizeof(RaneSharedMeters));
+}
+
 static constexpr AudioObjectID kObjectID_PlugIn        = kAudioObjectPlugInObject; /* = 1 */
 static constexpr AudioObjectID kObjectID_Device        = 2;
 static constexpr AudioObjectID kObjectID_Stream_Input  = 3;
 static constexpr AudioObjectID kObjectID_Stream_Output = 4;
 
-static constexpr UInt32 kChannels       = RANE_CHANNELS; /* 16 */
-static constexpr UInt32 kBytesPerFloat  = sizeof(float); /* 4 */
-static constexpr UInt32 kBytesPerFrame  = kChannels * kBytesPerFloat; /* 64 */
+static constexpr UInt32 kInChannels       = 12; /* 12 Record / Input channels (6 stereo pairs) */
+static constexpr UInt32 kOutChannels      = 10; /* 10 Playback / Output channels (5 stereo pairs) */
+static constexpr UInt32 kBytesPerFloat    = sizeof(float); /* 4 */
+static constexpr UInt32 kInBytesPerFrame  = kInChannels * kBytesPerFloat; /* 48 */
+static constexpr UInt32 kOutBytesPerFrame = kOutChannels * kBytesPerFloat; /* 40 */
 static constexpr UInt32 kZeroTSPeriod   = 16384;
 static constexpr UInt32 kSafetyOffset   = 256;
 static constexpr UInt32 kDeviceLatency  = 512;
@@ -85,6 +152,13 @@ static void SavePersistedBufferFrameSize(UInt32 size) {
 static void NotifyDeviceAvailability(bool alive) {
     if (alive) {
         LoadPersistedBufferFrameSize();
+    } else {
+        if (gDeviceRunning.load()) {
+            pthread_mutex_lock(&gStateLock);
+            StreamEngine::shared().stop();
+            gDeviceRunning.store(false);
+            pthread_mutex_unlock(&gStateLock);
+        }
     }
     gDeviceAlive.store(alive);
     RLOG("Availability notification: %s", alive ? "Rane Device Connected" : "Rane Device Disconnected");
@@ -99,19 +173,24 @@ static void NotifyDeviceAvailability(bool alive) {
 
     addr.mSelector = kAudioDevicePropertyDeviceIsAlive;
     gHost->PropertiesChanged(gHost, kObjectID_Device, 1, &addr);
+
+    addr.mSelector = kAudioDevicePropertyDeviceIsRunning;
+    gHost->PropertiesChanged(gHost, kObjectID_Device, 1, &addr);
 }
 
-static AudioStreamBasicDescription MakeASBD(Float64 sampleRate) {
+static AudioStreamBasicDescription MakeASBD(Float64 sampleRate, bool isInput) {
     AudioStreamBasicDescription asbd = {};
+    UInt32 ch = isInput ? kInChannels : kOutChannels;
+    UInt32 bytesPerFrame = ch * kBytesPerFloat;
     asbd.mSampleRate       = sampleRate;
     asbd.mFormatID         = kAudioFormatLinearPCM;
     asbd.mFormatFlags      = (AudioFormatFlags)kAudioFormatFlagIsFloat
                            | (AudioFormatFlags)kAudioFormatFlagsNativeEndian
                            | (AudioFormatFlags)kAudioFormatFlagIsPacked;
-    asbd.mBytesPerPacket   = kBytesPerFrame;
+    asbd.mBytesPerPacket   = bytesPerFrame;
     asbd.mFramesPerPacket  = 1;
-    asbd.mBytesPerFrame    = kBytesPerFrame;
-    asbd.mChannelsPerFrame = kChannels;
+    asbd.mBytesPerFrame    = bytesPerFrame;
+    asbd.mChannelsPerFrame = ch;
     asbd.mBitsPerChannel   = 32;
     return asbd;
 }
@@ -124,6 +203,69 @@ static OSStatus WriteCFString(CFStringRef s, UInt32 inDataSize, UInt32* outDataS
         CFRetain(s);
     }
     return noErr;
+}
+
+static CFStringRef GetChannelName(bool isInput, UInt32 element) {
+    if (element == kAudioObjectPropertyElementMain) {
+        return isInput ? CFSTR("Rane Sixty-Eight Input (12 Ch)") : CFSTR("Rane Sixty-Eight Output (10 Ch)");
+    }
+    if (isInput) {
+        switch (element) {
+            case 1:  return CFSTR("PGM 1 In L");
+            case 2:  return CFSTR("PGM 1 In R");
+            case 3:  return CFSTR("PGM 2 In L");
+            case 4:  return CFSTR("PGM 2 In R");
+            case 5:  return CFSTR("PGM 3 In L");
+            case 6:  return CFSTR("PGM 3 In R");
+            case 7:  return CFSTR("PGM 4 In L");
+            case 8:  return CFSTR("PGM 4 In R");
+            case 9:  return CFSTR("FlexFX Send L");
+            case 10: return CFSTR("FlexFX Send R");
+            case 11: return CFSTR("USB-6 Record L (Main/Mic)");
+            case 12: return CFSTR("USB-6 Record R (Main/Mic)");
+            default: return CFSTR("Input");
+        }
+    } else {
+        switch (element) {
+            case 1:  return CFSTR("Deck 1 Out L (PGM 1/2)");
+            case 2:  return CFSTR("Deck 1 Out R (PGM 1/2)");
+            case 3:  return CFSTR("Deck 2 Out L (PGM 1/2)");
+            case 4:  return CFSTR("Deck 2 Out R (PGM 1/2)");
+            case 5:  return CFSTR("Deck 3 Out L (PGM 3/4)");
+            case 6:  return CFSTR("Deck 3 Out R (PGM 3/4)");
+            case 7:  return CFSTR("Deck 4 Out L (PGM 3/4)");
+            case 8:  return CFSTR("Deck 4 Out R (PGM 3/4)");
+            case 9:  return CFSTR("FlexFX Return L");
+            case 10: return CFSTR("FlexFX Return R");
+            default: return CFSTR("Output");
+        }
+    }
+}
+
+static CFStringRef GetCategoryName(bool isInput, UInt32 element) {
+    if (element == kAudioObjectPropertyElementMain) {
+        return isInput ? CFSTR("Input Stream") : CFSTR("Output Stream");
+    }
+    if (isInput) {
+        switch (element) {
+            case 1: case 2:   return CFSTR("PGM 1");
+            case 3: case 4:   return CFSTR("PGM 2");
+            case 5: case 6:   return CFSTR("PGM 3");
+            case 7: case 8:   return CFSTR("PGM 4");
+            case 9: case 10:  return CFSTR("FlexFX");
+            case 11: case 12: return CFSTR("Main / Mic");
+            default:          return CFSTR("Input");
+        }
+    } else {
+        switch (element) {
+            case 1: case 2:   return CFSTR("Deck 1");
+            case 3: case 4:   return CFSTR("Deck 2");
+            case 5: case 6:   return CFSTR("Deck 3");
+            case 7: case 8:   return CFSTR("Deck 4");
+            case 9: case 10:  return CFSTR("FlexFX");
+            default:          return CFSTR("Output");
+        }
+    }
 }
 
 extern "C" __attribute__((visibility("default")))
@@ -152,6 +294,7 @@ static ULONG STDMETHODCALLTYPE RaneHAL_Release(void*) { return gRefCount.fetch_s
 static OSStatus RaneHAL_Initialize(AudioServerPlugInDriverRef, AudioServerPlugInHostRef inHost) {
     gHost = inHost;
     RLOG("Initializing Rane HAL PlugIn");
+    InitSharedMeters();
     LoadPersistedBufferFrameSize();
     StreamEngine::shared().init();
 
@@ -212,6 +355,11 @@ static Boolean RaneHAL_HasProperty(AudioServerPlugInDriverRef, AudioObjectID inO
         case kAudioObjectPropertyClass:
         case kAudioObjectPropertyOwner:
         case kAudioObjectPropertyName:
+        case kAudioObjectPropertyElementName:
+        case kAudioObjectPropertyElementCategoryName:
+        case kAudioObjectPropertyElementNumberName:
+        case kAudioObjectPropertyModelName:
+        case kAudioObjectPropertyFirmwareVersion:
         case kAudioObjectPropertyManufacturer:
         case kAudioObjectPropertyOwnedObjects:
         case kAudioDevicePropertyDeviceUID:
@@ -221,6 +369,8 @@ static Boolean RaneHAL_HasProperty(AudioServerPlugInDriverRef, AudioObjectID inO
         case kAudioDevicePropertyClockDomain:
         case kAudioDevicePropertyDeviceIsAlive:
         case kAudioDevicePropertyDeviceIsRunning:
+        case kAudioDevicePropertyDeviceCanBeDefaultDevice:
+        case kAudioDevicePropertyDeviceCanBeDefaultSystemDevice:
         case kAudioObjectPropertyControlList:
         case kAudioDevicePropertyNominalSampleRate:
         case kAudioDevicePropertyAvailableNominalSampleRates:
@@ -243,6 +393,9 @@ static Boolean RaneHAL_HasProperty(AudioServerPlugInDriverRef, AudioObjectID inO
         case kAudioObjectPropertyClass:
         case kAudioObjectPropertyOwner:
         case kAudioObjectPropertyName:
+        case kAudioObjectPropertyElementName:
+        case kAudioObjectPropertyElementCategoryName:
+        case kAudioObjectPropertyElementNumberName:
         case kAudioStreamPropertyIsActive:
         case kAudioStreamPropertyDirection:
         case kAudioStreamPropertyTerminalType:
@@ -308,6 +461,11 @@ static OSStatus RaneHAL_GetPropertyDataSize(AudioServerPlugInDriverRef, AudioObj
         case kAudioObjectPropertyClass:
         case kAudioObjectPropertyOwner:                            *outDataSize = sizeof(AudioClassID); return noErr;
         case kAudioObjectPropertyName:
+        case kAudioObjectPropertyElementName:
+        case kAudioObjectPropertyElementCategoryName:
+        case kAudioObjectPropertyElementNumberName:
+        case kAudioObjectPropertyModelName:
+        case kAudioObjectPropertyFirmwareVersion:
         case kAudioObjectPropertyManufacturer:
         case kAudioDevicePropertyDeviceUID:
         case kAudioDevicePropertyModelUID:                         *outDataSize = sizeof(CFStringRef); return noErr;
@@ -315,6 +473,8 @@ static OSStatus RaneHAL_GetPropertyDataSize(AudioServerPlugInDriverRef, AudioObj
         case kAudioDevicePropertyClockDomain:
         case kAudioDevicePropertyDeviceIsAlive:
         case kAudioDevicePropertyDeviceIsRunning:
+        case kAudioDevicePropertyDeviceCanBeDefaultDevice:
+        case kAudioDevicePropertyDeviceCanBeDefaultSystemDevice:
         case kAudioDevicePropertyIsHidden:
         case kAudioDevicePropertyLatency:
         case kAudioDevicePropertySafetyOffset:
@@ -342,7 +502,10 @@ static OSStatus RaneHAL_GetPropertyDataSize(AudioServerPlugInDriverRef, AudioObj
         case kAudioObjectPropertyBaseClass:
         case kAudioObjectPropertyClass:
         case kAudioObjectPropertyOwner:               *outDataSize = sizeof(AudioClassID); return noErr;
-        case kAudioObjectPropertyName:                *outDataSize = sizeof(CFStringRef); return noErr;
+        case kAudioObjectPropertyName:
+        case kAudioObjectPropertyElementName:
+        case kAudioObjectPropertyElementCategoryName:
+        case kAudioObjectPropertyElementNumberName:   *outDataSize = sizeof(CFStringRef); return noErr;
         case kAudioStreamPropertyIsActive:
         case kAudioStreamPropertyDirection:
         case kAudioStreamPropertyTerminalType:
@@ -403,14 +566,43 @@ static OSStatus RaneHAL_GetPropertyData(AudioServerPlugInDriverRef, AudioObjectI
         case kAudioObjectPropertyBaseClass:   *(AudioClassID*)outData = kAudioObjectClassID;  *outDataSize = sizeof(AudioClassID); return noErr;
         case kAudioObjectPropertyClass:       *(AudioClassID*)outData = kAudioDeviceClassID;  *outDataSize = sizeof(AudioClassID); return noErr;
         case kAudioObjectPropertyOwner:       *(AudioObjectID*)outData = kObjectID_PlugIn;    *outDataSize = sizeof(AudioObjectID); return noErr;
-        case kAudioObjectPropertyName:        return WriteCFString(CFSTR("Rane Sixty-Eight"), inDataSize, outDataSize, outData);
-        case kAudioObjectPropertyManufacturer:return WriteCFString(CFSTR("Rane Corporation"), inDataSize, outDataSize, outData);
-        case kAudioDevicePropertyDeviceUID:   return WriteCFString(CFSTR("org.openrane.sixtyeight"), inDataSize, outDataSize, outData);
-        case kAudioDevicePropertyModelUID:    return WriteCFString(CFSTR("RaneSixtyEight_Model"), inDataSize, outDataSize, outData);
-        case kAudioDevicePropertyTransportType:*(UInt32*)outData = kAudioDeviceTransportTypeUSB;   *outDataSize = sizeof(UInt32); return noErr;
-        case kAudioDevicePropertyClockDomain:  *(UInt32*)outData = 0;                                *outDataSize = sizeof(UInt32); return noErr;
-        case kAudioDevicePropertyDeviceIsAlive:*(UInt32*)outData = gDeviceAlive.load() ? 1 : 0;       *outDataSize = sizeof(UInt32); return noErr;
-        case kAudioDevicePropertyDeviceIsRunning:*(UInt32*)outData = gDeviceRunning.load() ? 1 : 0; *outDataSize = sizeof(UInt32); return noErr;
+        case kAudioObjectPropertyName:
+        case kAudioObjectPropertyElementName: {
+            if (inAddress->mElement == kAudioObjectPropertyElementMain) {
+                return WriteCFString(CFSTR("Rane Sixty-Eight"), inDataSize, outDataSize, outData);
+            }
+            bool isInput = (inAddress->mScope == kAudioObjectPropertyScopeInput);
+            return WriteCFString(GetChannelName(isInput, inAddress->mElement), inDataSize, outDataSize, outData);
+        }
+        case kAudioObjectPropertyElementCategoryName: {
+            if (inAddress->mElement == kAudioObjectPropertyElementMain) {
+                return WriteCFString(CFSTR("Main"), inDataSize, outDataSize, outData);
+            }
+            bool isInput = (inAddress->mScope == kAudioObjectPropertyScopeInput);
+            return WriteCFString(GetCategoryName(isInput, inAddress->mElement), inDataSize, outDataSize, outData);
+        }
+        case kAudioObjectPropertyElementNumberName: {
+            if (inAddress->mElement == kAudioObjectPropertyElementMain) {
+                return WriteCFString(CFSTR("Master"), inDataSize, outDataSize, outData);
+            }
+            char buf[16];
+            snprintf(buf, sizeof(buf), "%u", (unsigned int)inAddress->mElement);
+            CFStringRef numStr = CFStringCreateWithCString(kCFAllocatorDefault, buf, kCFStringEncodingUTF8);
+            OSStatus err = WriteCFString(numStr, inDataSize, outDataSize, outData);
+            CFRelease(numStr);
+            return err;
+        }
+        case kAudioObjectPropertyModelName:       return WriteCFString(CFSTR("Rane Sixty-Eight"), inDataSize, outDataSize, outData);
+        case kAudioObjectPropertyFirmwareVersion: return WriteCFString(CFSTR("v1.40"), inDataSize, outDataSize, outData);
+        case kAudioObjectPropertyManufacturer:    return WriteCFString(CFSTR("Rane Corporation"), inDataSize, outDataSize, outData);
+        case kAudioDevicePropertyDeviceUID:       return WriteCFString(CFSTR("org.openrane.sixtyeight"), inDataSize, outDataSize, outData);
+        case kAudioDevicePropertyModelUID:        return WriteCFString(CFSTR("RaneSixtyEight_Model"), inDataSize, outDataSize, outData);
+        case kAudioDevicePropertyTransportType:   *(UInt32*)outData = kAudioDeviceTransportTypeUSB;   *outDataSize = sizeof(UInt32); return noErr;
+        case kAudioDevicePropertyClockDomain:     *(UInt32*)outData = 0;                                *outDataSize = sizeof(UInt32); return noErr;
+        case kAudioDevicePropertyDeviceIsAlive:   *(UInt32*)outData = gDeviceAlive.load() ? 1 : 0;       *outDataSize = sizeof(UInt32); return noErr;
+        case kAudioDevicePropertyDeviceIsRunning: *(UInt32*)outData = gDeviceRunning.load() ? 1 : 0; *outDataSize = sizeof(UInt32); return noErr;
+        case kAudioDevicePropertyDeviceCanBeDefaultDevice:       *(UInt32*)outData = 1; *outDataSize = sizeof(UInt32); return noErr;
+        case kAudioDevicePropertyDeviceCanBeDefaultSystemDevice: *(UInt32*)outData = 1; *outDataSize = sizeof(UInt32); return noErr;
         case kAudioDevicePropertyIsHidden:     *(UInt32*)outData = 0;                                *outDataSize = sizeof(UInt32); return noErr;
         case kAudioDevicePropertyLatency:      *(UInt32*)outData = gBufferFrameSize.load();          *outDataSize = sizeof(UInt32); return noErr;
         case kAudioDevicePropertySafetyOffset: *(UInt32*)outData = std::max((UInt32)16, gBufferFrameSize.load() / 4); *outDataSize = sizeof(UInt32); return noErr;
@@ -476,8 +668,31 @@ static OSStatus RaneHAL_GetPropertyData(AudioServerPlugInDriverRef, AudioObjectI
         case kAudioObjectPropertyBaseClass:  *(AudioClassID*)outData = kAudioObjectClassID; *outDataSize = sizeof(AudioClassID); return noErr;
         case kAudioObjectPropertyClass:      *(AudioClassID*)outData = kAudioStreamClassID; *outDataSize = sizeof(AudioClassID); return noErr;
         case kAudioObjectPropertyOwner:      *(AudioObjectID*)outData = kObjectID_Device;   *outDataSize = sizeof(AudioObjectID); return noErr;
-        case kAudioObjectPropertyName:       return WriteCFString(isInput ? CFSTR("Rane Input (16 Ch)") : CFSTR("Rane Output (16 Ch)"),
-                                                                 inDataSize, outDataSize, outData);
+        case kAudioObjectPropertyName:
+        case kAudioObjectPropertyElementName: {
+            if (inAddress->mElement == kAudioObjectPropertyElementMain) {
+                return WriteCFString(isInput ? CFSTR("Rane Sixty-Eight Input (12 Ch)") : CFSTR("Rane Sixty-Eight Output (10 Ch)"),
+                                     inDataSize, outDataSize, outData);
+            }
+            return WriteCFString(GetChannelName(isInput, inAddress->mElement), inDataSize, outDataSize, outData);
+        }
+        case kAudioObjectPropertyElementCategoryName: {
+            if (inAddress->mElement == kAudioObjectPropertyElementMain) {
+                return WriteCFString(CFSTR("Stream"), inDataSize, outDataSize, outData);
+            }
+            return WriteCFString(GetCategoryName(isInput, inAddress->mElement), inDataSize, outDataSize, outData);
+        }
+        case kAudioObjectPropertyElementNumberName: {
+            if (inAddress->mElement == kAudioObjectPropertyElementMain) {
+                return WriteCFString(CFSTR("Stream"), inDataSize, outDataSize, outData);
+            }
+            char buf[16];
+            snprintf(buf, sizeof(buf), "%u", (unsigned int)inAddress->mElement);
+            CFStringRef numStr = CFStringCreateWithCString(kCFAllocatorDefault, buf, kCFStringEncodingUTF8);
+            OSStatus err = WriteCFString(numStr, inDataSize, outDataSize, outData);
+            CFRelease(numStr);
+            return err;
+        }
         case kAudioStreamPropertyIsActive:
             *(UInt32*)outData = (isInput ? gStreamInputActive.load() : gStreamOutputActive.load()) ? 1 : 0;
             *outDataSize = sizeof(UInt32); return noErr;
@@ -488,13 +703,13 @@ static OSStatus RaneHAL_GetPropertyData(AudioServerPlugInDriverRef, AudioObjectI
         case kAudioStreamPropertyLatency:    *(UInt32*)outData = gBufferFrameSize.load();      *outDataSize = sizeof(UInt32); return noErr;
         case kAudioStreamPropertyVirtualFormat:
         case kAudioStreamPropertyPhysicalFormat:
-            *(AudioStreamBasicDescription*)outData = MakeASBD(gNominalRate.load());
+            *(AudioStreamBasicDescription*)outData = MakeASBD(gNominalRate.load(), isInput);
             *outDataSize = sizeof(AudioStreamBasicDescription); return noErr;
         case kAudioStreamPropertyAvailableVirtualFormats:
         case kAudioStreamPropertyAvailablePhysicalFormats: {
             AudioStreamRangedDescription* fmts = (AudioStreamRangedDescription*)outData;
             for (UInt32 i = 0; i < kNumRates; i++) {
-                fmts[i].mFormat = MakeASBD(kSupportedRates[i]);
+                fmts[i].mFormat = MakeASBD(kSupportedRates[i], isInput);
                 fmts[i].mSampleRateRange.mMinimum = kSupportedRates[i];
                 fmts[i].mSampleRateRange.mMaximum = kSupportedRates[i];
             }
@@ -590,9 +805,17 @@ static OSStatus RaneHAL_SetPropertyData(AudioServerPlugInDriverRef driver, Audio
 static OSStatus RaneHAL_StartIO(AudioServerPlugInDriverRef, AudioObjectID deviceID, UInt32) {
     if (deviceID != kObjectID_Device) return kAudioHardwareBadObjectError;
     RLOG("StartIO requested");
+    InitSharedMeters();
     pthread_mutex_lock(&gStateLock);
     bool ok = StreamEngine::shared().start();
-    if (ok) gDeviceRunning.store(true);
+    if (ok) {
+        gDeviceRunning.store(true);
+        if (gSharedMeters) {
+            gSharedMeters->isRunning = 1;
+            gSharedMeters->sampleRate = (uint32_t)gNominalRate.load();
+            gSharedMeters->bufferFrameSize = gBufferFrameSize.load();
+        }
+    }
     pthread_mutex_unlock(&gStateLock);
     return ok ? noErr : (OSStatus)kAudioHardwareUnspecifiedError;
 }
@@ -603,6 +826,16 @@ static OSStatus RaneHAL_StopIO(AudioServerPlugInDriverRef, AudioObjectID deviceI
     pthread_mutex_lock(&gStateLock);
     StreamEngine::shared().stop();
     gDeviceRunning.store(false);
+    if (gSharedMeters) {
+        gSharedMeters->isRunning = 0;
+        for (int i = 0; i < 12; i++) {
+            gSharedMeters->inPeaks[i] = 0.0f;
+        }
+        for (int i = 0; i < 10; i++) {
+            gSharedMeters->outPeaks[i] = 0.0f;
+        }
+        gSharedMeters->sequence++;
+    }
     pthread_mutex_unlock(&gStateLock);
     return noErr;
 }
@@ -655,27 +888,40 @@ static OSStatus RaneHAL_DoIOOperation(AudioServerPlugInDriverRef, AudioObjectID 
     if (inOperationID == kAudioServerPlugInIOOperationReadInput && streamID == kObjectID_Stream_Input) {
         const uint64_t sampleTime = (uint64_t)inIOCycleInfo->mInputTime.mSampleTime;
         StreamEngine::shared().readInput(sampleTime, inIOBufferFrameSize, (float*)ioMainBuffer);
+        if (gSharedMeters && ioMainBuffer) {
+            const float* fbuf = (const float*)ioMainBuffer;
+            float p[12] = {0};
+            for (UInt32 f = 0; f < inIOBufferFrameSize; f++) {
+                const float* frame = fbuf + f * kInChannels;
+                for (UInt32 c = 0; c < kInChannels; c++) {
+                    float v = fabsf(frame[c]);
+                    if (v > p[c]) p[c] = v;
+                }
+            }
+            for (UInt32 c = 0; c < kInChannels; c++) {
+                gSharedMeters->inPeaks[c] = p[c];
+            }
+            gSharedMeters->timestampNs = mach_absolute_time();
+            gSharedMeters->sequence++;
+        }
         return noErr;
     }
     if (inOperationID == kAudioServerPlugInIOOperationWriteMix && streamID == kObjectID_Stream_Output) {
-        static uint64_t sWriteCount = 0;
-        if (sWriteCount++ % 50 == 0) {
+        if (gSharedMeters && ioMainBuffer) {
             const float* fbuf = (const float*)ioMainBuffer;
-            float p01 = 0, p23 = 0, p45 = 0, p67 = 0;
-            if (fbuf) {
-                for (UInt32 f = 0; f < inIOBufferFrameSize; f++) {
-                    float v0 = fabsf(fbuf[f * kChannels + 0]); if (v0 > p01) p01 = v0;
-                    float v1 = fabsf(fbuf[f * kChannels + 1]); if (v1 > p01) p01 = v1;
-                    float v2 = fabsf(fbuf[f * kChannels + 2]); if (v2 > p23) p23 = v2;
-                    float v3 = fabsf(fbuf[f * kChannels + 3]); if (v3 > p23) p23 = v3;
-                    float v4 = fabsf(fbuf[f * kChannels + 4]); if (v4 > p45) p45 = v4;
-                    float v5 = fabsf(fbuf[f * kChannels + 5]); if (v5 > p45) p45 = v5;
-                    float v6 = fabsf(fbuf[f * kChannels + 6]); if (v6 > p67) p67 = v6;
-                    float v7 = fabsf(fbuf[f * kChannels + 7]); if (v7 > p67) p67 = v7;
+            float p[10] = {0};
+            for (UInt32 f = 0; f < inIOBufferFrameSize; f++) {
+                const float* frame = fbuf + f * kOutChannels;
+                for (UInt32 c = 0; c < kOutChannels; c++) {
+                    float v = fabsf(frame[c]);
+                    if (v > p[c]) p[c] = v;
                 }
             }
-            RLOG("DoIO writeMix #%llu: frames=%u USB1(PGM1)=%.2f USB2(PGM2)=%.2f USB3(PGM3)=%.2f USB4(PGM4)=%.2f",
-                 sWriteCount, inIOBufferFrameSize, p01, p23, p45, p67);
+            for (UInt32 c = 0; c < kOutChannels; c++) {
+                gSharedMeters->outPeaks[c] = p[c];
+            }
+            gSharedMeters->timestampNs = mach_absolute_time();
+            gSharedMeters->sequence++;
         }
         const uint64_t sampleTime = (uint64_t)inIOCycleInfo->mOutputTime.mSampleTime;
         StreamEngine::shared().writeOutput(sampleTime, inIOBufferFrameSize, (const float*)ioMainBuffer);

@@ -71,7 +71,7 @@ static OSStatus stressIOProc(
     }
     gStats.lastHostTime = nowHost;
 
-    // Synthesize sine wave on all 16 output channels
+    // Synthesize sine wave on all output channels (10 Ch)
     if (outOutputData) {
         static float phase = 0.0f;
         float freq = 440.0f;
@@ -247,7 +247,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     gRunning.store(true);
-    std::cout << "  -> 16-Kanal Audio-Stream aktiv gestartet (48 kHz Float)" << std::endl;
+    std::cout << "  -> 22-Kanal Audio-Stream aktiv gestartet (12 In / 10 Out, 48 kHz Float)" << std::endl;
 
     // 3. MIDI Flood Engine Setup
     std::cout << "\n[3/4] MIDI- & HID-Bus Stresstest vorbereiten..." << std::endl;
@@ -333,7 +333,7 @@ int main(int argc, char* argv[]) {
     std::cout << "  • Hardware-Port:         " << usbPortName << std::endl;
     std::cout << "  • Test-Dauer:            " << durationSec << " Sekunden" << std::endl;
     std::cout << "  • Audio-Callbacks:       " << gStats.totalCallbacks.load() << " Zyklen" << std::endl;
-    std::cout << "  • Gerenderte Frames:     " << gStats.totalFramesRendered.load() << " (16 In / 16 Out)" << std::endl;
+    std::cout << "  • Gerenderte Frames:     " << gStats.totalFramesRendered.load() << " (12 In / 10 Out)" << std::endl;
     std::cout << "  • Puffergrößen-Wechsel:  " << gStats.bufferResizeSuccesses.load() << " erfolgreich ("
               << gStats.bufferResizeFailures.load() << " Fehler)" << std::endl;
     std::cout << "  • Erkannte Dropouts:     " << gStats.xrunCount.load() << std::endl;

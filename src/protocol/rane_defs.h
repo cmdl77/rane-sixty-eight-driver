@@ -34,15 +34,18 @@ extern "C" {
 #define RANE_EP_MIDI_OUT          0x01    /* Endpoint 1 OUT (0x01 MIDI OUT) */
 
 /* Topology */
-#define RANE_CHANNELS             16      /* 16 Audio Input channels & 16 Output channels */
+#define RANE_CHANNELS_IN          12      /* 12 Audio Input channels (6 Stereo Pairs) */
+#define RANE_CHANNELS_OUT         10      /* 10 Audio Output channels (5 Stereo Pairs) */
+#define RANE_CHANNELS_TOTAL       22      /* 12 In + 10 Out */
+#define RANE_CHANNELS             12      /* Max single-direction channels */
 #define RANE_BYTES_PER_SAMPLE     3       /* 24-bit PCM S24_3LE */
-#define RANE_OUT_FRAME_SIZE       (RANE_CHANNELS * RANE_BYTES_PER_SAMPLE) /* 48 bytes per frame */
-#define RANE_IN_FRAME_SIZE        (RANE_CHANNELS * RANE_BYTES_PER_SAMPLE)  /* 48 bytes per frame */
+#define RANE_OUT_FRAME_SIZE       (RANE_CHANNELS_OUT * RANE_BYTES_PER_SAMPLE) /* 30 bytes per frame */
+#define RANE_IN_FRAME_SIZE        (RANE_CHANNELS_IN  * RANE_BYTES_PER_SAMPLE) /* 36 bytes per frame */
 #define RANE_FRAMES_PER_PACKET    48      /* 1ms buffer at 48kHz */
 
 /* Packet sizes */
-#define RANE_OUT_PKT_SIZE         (RANE_FRAMES_PER_PACKET * RANE_OUT_FRAME_SIZE) /* 2304 bytes */
-#define RANE_IN_PKT_SIZE          (RANE_FRAMES_PER_PACKET * RANE_IN_FRAME_SIZE)  /* 2304 bytes */
+#define RANE_OUT_PKT_SIZE         (RANE_FRAMES_PER_PACKET * RANE_OUT_FRAME_SIZE) /* 1440 bytes */
+#define RANE_IN_PKT_SIZE          (RANE_FRAMES_PER_PACKET * RANE_IN_FRAME_SIZE)  /* 1728 bytes */
 
 #define RANE_NUM_INTERFACES       2
 #define RANE_ALT_SETTING_AUDIO    1
@@ -64,20 +67,21 @@ typedef struct {
     const char *displayName;
     const char *modelUID;
     uint32_t defaultSampleRate;
-    uint32_t channels;
+    uint32_t channelsIn;
+    uint32_t channelsOut;
 } RaneDeviceInfo;
 
 static inline const RaneDeviceInfo* rane_lookup_device(uint16_t vid, uint16_t pid) {
     static const RaneDeviceInfo kDevices[] = {
-        { RANE_VENDOR_ID_1, RANE_PID_SIXTY_EIGHT_HW,  "Rane Sixty-Eight",         "RaneSixtyEight_Model",  48000, 16 },
-        { RANE_VENDOR_ID_1, RANE_PID_SIXTY_EIGHT_A,   "Rane Sixty-Eight (USB 1)", "RaneSixtyEight_Model1", 48000, 16 },
-        { RANE_VENDOR_ID_1, RANE_PID_SIXTY_EIGHT_B,   "Rane Sixty-Eight (USB 2)", "RaneSixtyEight_Model2", 48000, 16 },
-        { RANE_VENDOR_ID_2, RANE_PID_SIXTY_EIGHT_HW,  "Rane Sixty-Eight",         "RaneSixtyEight_Model",  48000, 16 },
-        { RANE_VENDOR_ID_2, RANE_PID_SIXTY_EIGHT_A,   "Rane Sixty-Eight (USB 1)", "RaneSixtyEight_Model1", 48000, 16 },
-        { RANE_VENDOR_ID_3, RANE_PID_SIXTY_EIGHT_HW,  "Rane Sixty-Eight",         "RaneSixtyEight_Model",  48000, 16 },
-        { RANE_VENDOR_ID_1, RANE_PID_SIXTY_FOUR,      "Rane Sixty-Four",          "RaneSixtyFour_Model",   48000, 12 },
-        { RANE_VENDOR_ID_1, RANE_PID_SIXTY_TWO,       "Rane Sixty-Two",           "RaneSixtyTwo_Model",    48000, 6  },
-        { RANE_VENDOR_ID_1, RANE_PID_SL4,             "Rane SL4",                 "RaneSL4_Model",         48000, 10 },
+        { RANE_VENDOR_ID_1, RANE_PID_SIXTY_EIGHT_HW,  "Rane Sixty-Eight",         "RaneSixtyEight_Model",  48000, 12, 10 },
+        { RANE_VENDOR_ID_1, RANE_PID_SIXTY_EIGHT_A,   "Rane Sixty-Eight (USB 1)", "RaneSixtyEight_Model1", 48000, 12, 10 },
+        { RANE_VENDOR_ID_1, RANE_PID_SIXTY_EIGHT_B,   "Rane Sixty-Eight (USB 2)", "RaneSixtyEight_Model2", 48000, 12, 10 },
+        { RANE_VENDOR_ID_2, RANE_PID_SIXTY_EIGHT_HW,  "Rane Sixty-Eight",         "RaneSixtyEight_Model",  48000, 12, 10 },
+        { RANE_VENDOR_ID_2, RANE_PID_SIXTY_EIGHT_A,   "Rane Sixty-Eight (USB 1)", "RaneSixtyEight_Model1", 48000, 12, 10 },
+        { RANE_VENDOR_ID_3, RANE_PID_SIXTY_EIGHT_HW,  "Rane Sixty-Eight",         "RaneSixtyEight_Model",  48000, 12, 10 },
+        { RANE_VENDOR_ID_1, RANE_PID_SIXTY_FOUR,      "Rane Sixty-Four",          "RaneSixtyFour_Model",   48000, 12, 12 },
+        { RANE_VENDOR_ID_1, RANE_PID_SIXTY_TWO,       "Rane Sixty-Two",           "RaneSixtyTwo_Model",    48000, 6,  6  },
+        { RANE_VENDOR_ID_1, RANE_PID_SL4,             "Rane SL4",                 "RaneSL4_Model",         48000, 10, 10 },
     };
     for (size_t i = 0; i < sizeof(kDevices)/sizeof(kDevices[0]); i++) {
         if ((kDevices[i].vid == vid || vid == 0 || kDevices[i].vid == 0x1CC5 || vid == 0x1CC5) &&

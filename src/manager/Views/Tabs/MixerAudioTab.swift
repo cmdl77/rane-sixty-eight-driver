@@ -152,7 +152,27 @@ extension MainWindowController {
         card2Stack.addArrangedSubview(div5)
         div5.widthAnchor.constraint(equalTo: card2Stack.widthAnchor).isActive = true
 
-        // Row 7: USB Status
+        // Row 7: MIDI Control Point Assignment
+        controlPointSegment = NSSegmentedControl(labels: [
+            Localization.tr(en: "  USB Port A  ", de: "  USB Port A  "),
+            Localization.tr(en: "  USB Port B  ", de: "  USB Port B  ")
+        ], trackingMode: .selectOne, target: self, action: #selector(onControlPointChanged))
+        controlPointSegment.selectedSegment = 0
+        controlPointSegment.controlSize = .regular
+        let rowControlPt = createControlRow(
+            symbol: "person.badge.shield.checkmark",
+            title: Localization.tr(en: "MIDI Control Point Assignment", de: "MIDI Control Point Zuweisung"),
+            subtitle: Localization.tr(en: "Assigns the Cue/Loop & encoder controls to USB Port A or B", de: "Weist die Cue/Loop-Bedienelemente USB-Port A oder B zu"),
+            control: controlPointSegment
+        )
+        card2Stack.addArrangedSubview(rowControlPt)
+        rowControlPt.widthAnchor.constraint(equalTo: card2Stack.widthAnchor).isActive = true
+
+        let div6 = createDivider()
+        card2Stack.addArrangedSubview(div6)
+        div6.widthAnchor.constraint(equalTo: card2Stack.widthAnchor).isActive = true
+
+        // Row 8: USB Status
         usbStatusBadge = NSTextField(labelWithString: Localization.tr(en: "  ● Port A Active (48 kHz Float)  ", de: "  ● Port A Aktiv (48 kHz Float)  "))
         usbStatusBadge.font = NSFont.systemFont(ofSize: 11, weight: .bold)
         usbStatusBadge.textColor = NSColor.systemGreen
@@ -223,15 +243,39 @@ extension MainWindowController {
         appendMidiLog("OUT: LCD Kontrast -> CC#37=\(val) (\(pct)%)")
     }
 
+    @objc func onControlPointChanged() {
+        let port: UInt8 = (controlPointSegment.selectedSegment == 0) ? 0x01 : 0x02
+        let portName = (port == 0x01) ? "USB Port A" : "USB Port B"
+        RaneMidiService.shared.sendSysEx([0xF0, 0x17, 0x52, port, 0xF7])
+        appendMidiLog("OUT: MIDI Control Point -> \(portName) [SysEx 0x52]")
+    }
+
     @objc func onUsb6RecordSegmentChanged() {
         let sel: UInt8 = UInt8(usb6RecordSegment.selectedSegment + 1)
         sendUserCC(cc: 33, value: sel)
+        sendUserCC(cc: 35, value: sel)
         let name = (sel == 1 ? "Main Mix" : (sel == 2 ? "Mic 1" : "Mic 2"))
-        appendMidiLog("OUT: USB-6 Record -> CC#33=\(sel) (\(name)) [Warte auf Quittung...]")
+        appendMidiLog("OUT: USB-6 Record -> CC#33 & CC#35=\(sel) (\(name))")
     }
 
     @objc func onBufferSizePopupChanged() {
+        let index = bufferSizePopup.indexOfSelectedItem
+        let frames: Int
+        switch index {
+        case 0: frames = 128  // 1 ms
+        case 1: frames = 256  // 2 ms
+        case 2: frames = 512  // 5 ms
+        case 3: frames = 768  // 8 ms
+        case 4: frames = 1024 // 10 ms
+        case 5: frames = 1536 // 15 ms
+        case 6: frames = 2048 // 20 ms
+        default: frames = 512
+        }
+        let file = "/var/tmp/rane_sixty_eight_buffer_size.txt"
+        try? "\(frames)\n".write(toFile: file, atomically: true, encoding: .utf8)
+        let alt = "/tmp/rane_sixty_eight_buffer_size.txt"
+        try? "\(frames)\n".write(toFile: alt, atomically: true, encoding: .utf8)
         let title = bufferSizePopup.titleOfSelectedItem ?? ""
-        appendSysLog("Buffer Size geändert auf: \(title)")
+        appendSysLog("Buffer Size geändert auf: \(title) (\(frames) Frames)")
     }
 }

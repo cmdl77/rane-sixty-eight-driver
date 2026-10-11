@@ -303,8 +303,8 @@ extension MainWindowController {
         isStressTestRunning = true
         stressTestButton?.title = Localization.tr(en: "⏹ Stop Stress Test", de: "⏹ Stresstest Beenden")
         appendSysLog(Localization.tr(
-            en: "🔥 Starting 16-Channel Hardware & Driver Stress Test...",
-            de: "🔥 Starte 16-Kanal Hardware & Treiber Stresstest..."
+            en: "🔥 Starting 22-Channel (12 In / 10 Out) Hardware & Driver Stress Test...",
+            de: "🔥 Starte 22-Kanal (12 In / 10 Out) Hardware & Treiber Stresstest..."
         ))
 
         let process = Process()

@@ -28,8 +28,8 @@ public:
     virtual bool startStreaming() = 0;
     virtual void stopStreaming() = 0;
 
-    virtual void readInput(uint64_t sampleTime, uint32_t frames, float *dstFloat16Ch) = 0;
-    virtual void writeOutput(uint64_t sampleTime, uint32_t frames, const float *srcFloat16Ch) = 0;
+    virtual void readInput(uint64_t sampleTime, uint32_t frames, float *dstFloatIn) = 0;
+    virtual void writeOutput(uint64_t sampleTime, uint32_t frames, const float *srcFloatOut) = 0;
 
     virtual void getZeroTimeStamp(double *outSampleTime, uint64_t *outHostTime, uint64_t *outSeed) = 0;
 

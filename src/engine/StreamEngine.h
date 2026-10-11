@@ -19,8 +19,8 @@ public:
     void stop();
     bool isRunning() const { return mRunning.load(); }
 
-    void readInput(uint64_t sampleTime, uint32_t frames, float *dstFloat16Ch);
-    void writeOutput(uint64_t sampleTime, uint32_t frames, const float *srcFloat16Ch);
+    void readInput(uint64_t sampleTime, uint32_t frames, float *dstFloatIn);
+    void writeOutput(uint64_t sampleTime, uint32_t frames, const float *srcFloatOut);
 
     void getZeroTimeStamp(double *outSampleTime, uint64_t *outHostTime, uint64_t *outSeed);
 

@@ -21,10 +21,12 @@
 
 class IOUSBLibTransport : public IUSBTransport {
 public:
-    static constexpr uint32_t kChannels           = RANE_CHANNELS; /* 16 */
-    static constexpr uint32_t kBytesPerFrame      = RANE_OUT_FRAME_SIZE; /* 48 */
+    static constexpr uint32_t kInChannels         = 12; /* 12 Record / Input channels (6 stereo pairs) */
+    static constexpr uint32_t kOutChannels        = 10; /* 10 Playback / Output channels (5 stereo pairs) */
+    static constexpr uint32_t kBytesPerFloat      = sizeof(float);
     static constexpr uint32_t kRingFrames         = 32768;
-    static constexpr uint32_t kRingBytes          = kRingFrames * sizeof(float) * kChannels;
+    static constexpr uint32_t kInRingBytes        = kRingFrames * kInChannels * kBytesPerFloat;
+    static constexpr uint32_t kOutRingBytes       = kRingFrames * kOutChannels * kBytesPerFloat;
     static constexpr uint32_t kFramesPerXfer      = RANE_FRAMES_PER_PACKET; /* 48 */
     static constexpr uint32_t kDoubleBuffer       = 4;
 
@@ -62,8 +64,8 @@ public:
     virtual bool startStreaming() override;
     virtual void stopStreaming() override;
 
-    virtual void readInput(uint64_t sampleTime, uint32_t frames, float *dstFloat16Ch) override;
-    virtual void writeOutput(uint64_t sampleTime, uint32_t frames, const float *srcFloat16Ch) override;
+    virtual void readInput(uint64_t sampleTime, uint32_t frames, float *dstFloatIn) override;
+    virtual void writeOutput(uint64_t sampleTime, uint32_t frames, const float *srcFloatOut) override;
 
     virtual void getZeroTimeStamp(double *outSampleTime, uint64_t *outHostTime, uint64_t *outSeed) override;
 

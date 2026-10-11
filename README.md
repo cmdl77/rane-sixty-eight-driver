@@ -62,14 +62,19 @@ If macOS shows an alert stating *"Developer cannot be verified"*:
 
 ---
 
-## 🛠 Features & Highlights
+## 🛠 Features & Highlights (v2.0.0)
 
-- **16-Channel Audio (16 In / 16 Out):** Full support for all 4 stereo PGM decks, Aux, Mic, Session In/Out, and Sampler.
-- **Ultra-Low Latency:** Dynamic buffer scaling from **64 samples (~1.3 ms)** for turntablism and fast scratching up to 2048 samples.
-- **Dual-USB Port Support:** Connect computer to USB Port A or USB Port B for seamless DJ handoffs.
-- **Bidirectional MIDI:** Complete control mapping and hardware LED feedback (Cue buttons, FlexFX, side control strips).
-- **Native Apple Silicon & Intel:** Built as a Universal 2 binary running natively on M1, M2, M3, M4 and Intel Macs.
-- **Built-in Hardware LED Diagnostic Check:** Integrated chaser and full-board light check tool in the Control Panel.
+- **22-Kanal Live Audio Pegelanzeige (12 IN / 10 OUT):** Echtzeit VU-Meter für alle 12 Aufnahme-Kanäle (PGM 1–4, FlexFX Send, Main Mix) und 10 Playback-Kanäle (Decks 1–4, FlexFX Return) direkt in der Menüleiste der App bei 48 kHz / 32-Bit Float.
+- **Passiver CoreAudio Live-Monitoring Tap:** Hält den USB-Audiostream aktiv – Pegel schlagen auch dann live aus, wenn keine DAW oder DJ-Software geöffnet ist.
+- **Vollständige PGM 1–4 Hardware-Synchronisation:**
+  - **Feld 1:** Physischer Rückseiten-Schalter (`LINE (CD)` vs. `PHONO` vs. `S/PDIF` – CC 112–115).
+  - **Feld 2:** Oberer Kanalzug-Drehschalter (`PH/CD` vs. `USB` vs. `AUX` – CC 116–119).
+  - **Feld 3:** Crossfader-Stellungsanzeige (`A` vs. `POST` vs. `B` – CC 120–123) im einheitlichen Hardware-Badge-Stil.
+- **Anti-Stutter MIDI-Quittierung & Slider-Drosselung:** Schützt den USB-Bus vor Überlastung beim schnellen Bewegen von Reglern (Phones Tone, LCD-Kontrast).
+- **macOS Menüleisten-Widget (Status Item):** Schneller Zugriff auf Puffergröße/Latenz, Verbindungsstatus und Audio MIDI Setup direkt aus der oberen macOS-Menüleiste.
+- **Zweisprachig (Deutsch & Englisch):** Vollständige Lokalisierung aller Tabs, Tooltips und Systemmenüs inklusive Versionsanzeige `v2.0.0`.
+- **Native Apple Silicon (M1–M4) & Intel:** Kompiliert als Universal 2 Binary für maximale Effizienz und minimale Latenz ohne Rosetta 2.
+- **Integrierte Hardware-Diagnose:** LED-Chaser-Lichtcheck und Stresstest direkt im Control Panel.
 
 ---
 

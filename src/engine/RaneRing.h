@@ -18,7 +18,7 @@ public:
     RaneRing(const RaneRing&) = delete;
     RaneRing& operator=(const RaneRing&) = delete;
 
-    bool init(size_t capacityBytes) {
+    bool init(size_t capacityBytes, size_t frameBytes = 1) {
         /* Round up to power of 2 */
         size_t cap = 1;
         while (cap < capacityBytes) cap <<= 1;
@@ -29,6 +29,7 @@ public:
 
         mCapacity = cap;
         mMask = cap - 1;
+        mFrameBytes = (frameBytes > 0) ? frameBytes : 1;
         mHead.store(0, std::memory_order_relaxed);
         mTail.store(0, std::memory_order_relaxed);
         return true;
@@ -46,12 +47,14 @@ public:
         return tail - head;
     }
 
-    static constexpr size_t kFrameBytes = 16 * sizeof(float); /* 64 bytes: 1 audio frame of 16 float channels */
+    size_t frameBytes() const { return mFrameBytes; }
 
     size_t push(const uint8_t* src, size_t bytes) {
         size_t avail = availableWrite();
         size_t toWrite = std::min(bytes, avail);
-        toWrite = (toWrite / kFrameBytes) * kFrameBytes;
+        if (mFrameBytes > 1) {
+            toWrite = (toWrite / mFrameBytes) * mFrameBytes;
+        }
         if (toWrite == 0) return 0;
 
         size_t tail = mTail.load(std::memory_order_relaxed);
@@ -71,7 +74,9 @@ public:
     size_t pop(uint8_t* dst, size_t bytes) {
         size_t avail = availableRead();
         size_t toRead = std::min(bytes, avail);
-        toRead = (toRead / kFrameBytes) * kFrameBytes;
+        if (mFrameBytes > 1) {
+            toRead = (toRead / mFrameBytes) * mFrameBytes;
+        }
         if (toRead == 0) return 0;
 
         size_t head = mHead.load(std::memory_order_relaxed);
@@ -96,9 +101,10 @@ public:
     }
 
 private:
-    uint8_t*            mBuffer   = nullptr;
-    size_t              mCapacity = 0;
-    size_t              mMask     = 0;
+    uint8_t*            mBuffer     = nullptr;
+    size_t              mCapacity   = 0;
+    size_t              mMask       = 0;
+    size_t              mFrameBytes = 1;
     alignas(64) std::atomic<size_t> mHead{0};
     alignas(64) std::atomic<size_t> mTail{0};
 };

@@ -1,10 +1,12 @@
 /* SPDX-License-Identifier: MIT */
-/* AppDelegate.swift - Application lifecycle, menu bar & global dialogs */
+/* AppDelegate.swift - Application lifecycle, menu bar, status item widget & global dialogs */
 
 import Cocoa
 
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var windowController: MainWindowController?
+    var statusItem: NSStatusItem?
+    var statusTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -13,16 +15,224 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.applicationIconImage = iconImg
         }
         setupMainMenu()
+        setupStatusItem()
+
         windowController = MainWindowController()
         windowController?.window?.makeKeyAndOrderFront(nil)
         windowController?.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
+
+        statusTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            self?.updateStatusItem()
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        // Keep running in macOS menu bar status widget
+        return false
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag {
+            openControlPanelWindow()
+        }
         return true
     }
 
+    // MARK: - Menu Bar Status Item (Paket 3)
+    private func setupStatusItem() {
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        guard let button = statusItem?.button else { return }
+
+        if let img = NSImage(systemSymbolName: "slider.vertical.3", accessibilityDescription: "Rane Sixty-Eight") {
+            img.isTemplate = true
+            button.image = img
+            button.imagePosition = .imageLeading
+        }
+        button.title = " 68"
+        button.font = NSFont.systemFont(ofSize: 11, weight: .bold)
+
+        let menu = NSMenu()
+        menu.delegate = self
+        statusItem?.menu = menu
+        buildStatusMenu(menu)
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        buildStatusMenu(menu)
+    }
+
+    private func buildStatusMenu(_ menu: NSMenu) {
+        menu.removeAllItems()
+
+        // 1. Title Item
+        let titleItem = NSMenuItem(title: "RANE SIXTY-EIGHT", action: nil, keyEquivalent: "")
+        titleItem.attributedTitle = NSAttributedString(
+            string: "RANE SIXTY-EIGHT",
+            attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .heavy)]
+        )
+        titleItem.isEnabled = false
+        menu.addItem(titleItem)
+
+        // 2. Hardware Connection Status
+        let isConnected = RaneMidiService.shared.isConnected
+        let statText = isConnected
+            ? Localization.tr(en: "● Connected (USB Port A, 48 kHz)", de: "● Verbunden (USB Port A, 48 kHz)")
+            : Localization.tr(en: "● Disconnected (Offline)", de: "● Getrennt (Offline)")
+        let statItem = NSMenuItem(title: statText, action: nil, keyEquivalent: "")
+        statItem.attributedTitle = NSAttributedString(
+            string: statText,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+                .foregroundColor: isConnected ? NSColor.systemGreen : NSColor.systemRed
+            ]
+        )
+        statItem.isEnabled = false
+        menu.addItem(statItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        // 3. Current Latency / Buffer Submenu
+        let currentFrames = readCurrentBufferFrames()
+        let latSubmenu = NSMenu(title: Localization.tr(en: "Buffer Latency", de: "Puffergröße / Latenz"))
+        let bufferOptions: [(Int, String, String)] = [
+            (128,  "1 ms (128 Frames)",  "1 ms (128 Frames - Ultra Low)"),
+            (256,  "2 ms (256 Frames)",  "2 ms (256 Frames - Pro DJ)"),
+            (512,  "5 ms (512 Frames)",  "5 ms (512 Frames - Standard)"),
+            (768,  "8 ms (768 Frames)",  "8 ms (768 Frames - Safe)"),
+            (1024, "10 ms (1024 Frames)", "10 ms (1024 Frames)"),
+            (1536, "15 ms (1536 Frames)", "15 ms (1536 Frames)"),
+            (2048, "20 ms (2048 Frames)", "20 ms (2048 Frames - High Stability)")
+        ]
+
+        for (frames, _, longName) in bufferOptions {
+            let item = NSMenuItem(
+                title: Localization.tr(en: longName, de: longName),
+                action: #selector(onStatusBufferSelected(_:)),
+                keyEquivalent: ""
+            )
+            item.tag = frames
+            item.target = self
+            item.state = (frames == currentFrames) ? .on : .off
+            latSubmenu.addItem(item)
+        }
+
+        let latTitle = Localization.tr(en: "USB Audio Latency (\(currentFrames)f)", de: "USB Audio Latenz (\(currentFrames)f)")
+        let latItem = NSMenuItem(title: latTitle, action: nil, keyEquivalent: "")
+        latItem.submenu = latSubmenu
+        menu.addItem(latItem)
+
+        // 4. Audio Streams Info
+        let ioInfo = NSMenuItem(
+            title: Localization.tr(en: "Audio: 22 Channels (12 In / 10 Out)", de: "Audio: 22 Kanäle (12 In / 10 Out)"),
+            action: nil,
+            keyEquivalent: ""
+        )
+        ioInfo.isEnabled = false
+        menu.addItem(ioInfo)
+
+        menu.addItem(NSMenuItem.separator())
+
+        // 5. Open Control Panel
+        let openItem = NSMenuItem(
+            title: Localization.tr(en: "Open Control Panel...", de: "Control Panel öffnen..."),
+            action: #selector(openControlPanelWindow),
+            keyEquivalent: "o"
+        )
+        openItem.target = self
+        menu.addItem(openItem)
+
+        // 6. Open Audio MIDI Setup
+        let amsItem = NSMenuItem(
+            title: Localization.tr(en: "Audio MIDI Setup...", de: "Audio-MIDI-Konfiguration..."),
+            action: #selector(openAudioMidiSetup),
+            keyEquivalent: ""
+        )
+        amsItem.target = self
+        menu.addItem(amsItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        // 7. Quit
+        let quitItem = NSMenuItem(
+            title: Localization.tr(en: "Quit", de: "Beenden"),
+            action: #selector(NSApplication.terminate(_:)),
+            keyEquivalent: "q"
+        )
+        menu.addItem(quitItem)
+    }
+
+    private func readCurrentBufferFrames() -> Int {
+        if let s = try? String(contentsOfFile: "/var/tmp/rane_sixty_eight_buffer_size.txt", encoding: .utf8),
+           let val = Int(s.trimmingCharacters(in: .whitespacesAndNewlines)), val >= 64 && val <= 4096 {
+            return val
+        }
+        if let s = try? String(contentsOfFile: "/tmp/rane_sixty_eight_buffer_size.txt", encoding: .utf8),
+           let val = Int(s.trimmingCharacters(in: .whitespacesAndNewlines)), val >= 64 && val <= 4096 {
+            return val
+        }
+        return 512
+    }
+
+    @objc private func onStatusBufferSelected(_ sender: NSMenuItem) {
+        let frames = sender.tag
+        let file = "/var/tmp/rane_sixty_eight_buffer_size.txt"
+        try? "\(frames)\n".write(toFile: file, atomically: true, encoding: .utf8)
+        let alt = "/tmp/rane_sixty_eight_buffer_size.txt"
+        try? "\(frames)\n".write(toFile: alt, atomically: true, encoding: .utf8)
+
+        if let mc = windowController ?? MainWindowController.shared {
+            let index: Int
+            switch frames {
+            case 128: index = 0
+            case 256: index = 1
+            case 512: index = 2
+            case 768: index = 3
+            case 1024: index = 4
+            case 1536: index = 5
+            case 2048: index = 6
+            default: index = 2
+            }
+            if index < mc.bufferSizePopup.numberOfItems {
+                mc.bufferSizePopup.selectItem(at: index)
+            }
+            mc.appendSysLog("Latenz im Menüleisten-Widget gewählt: \(sender.title)")
+        }
+
+        updateStatusItem()
+    }
+
+    private func updateStatusItem() {
+        guard let button = statusItem?.button else { return }
+        let isConnected = RaneMidiService.shared.isConnected
+        if isConnected {
+            button.title = " 68"
+            button.contentTintColor = nil
+        } else {
+            button.title = " 68"
+            button.contentTintColor = NSColor.secondaryLabelColor
+        }
+    }
+
+    @objc func openControlPanelWindow() {
+        if windowController == nil {
+            windowController = MainWindowController()
+        }
+        windowController?.showWindow(nil)
+        windowController?.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc func openAudioMidiSetup() {
+        let ws = NSWorkspace.shared
+        if let url = ws.urlForApplication(withBundleIdentifier: "com.apple.audio.AudioMIDISetup") {
+            ws.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
+        } else {
+            ws.open(URL(fileURLWithPath: "/System/Applications/Utilities/Audio MIDI Setup.app"))
+        }
+    }
+
+    // MARK: - Main Menu
     private func setupMainMenu() {
         let mainMenu = NSMenu()
         let appName = "Rane Sixty-Eight Control Panel"
@@ -30,8 +240,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 1. App-Menü (Rane Sixty-Eight Control Panel)
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
-
-        let aboutItem = NSMenuItem(title: Localization.tr(en: "About \(appName)...", de: "Über \(appName)..."), action: #selector(showAboutDialog), keyEquivalent: "")
+        let versionStr = "v2.0.0"
+        let aboutItem = NSMenuItem(title: Localization.tr(en: "About \(appName) (\(versionStr))...", de: "Über \(appName) (\(versionStr))..."), action: #selector(showAboutDialog), keyEquivalent: "")
         aboutItem.target = self
         appMenu.addItem(aboutItem)
 
@@ -114,7 +324,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 5. Help / Hilfe
         let helpMenuItem = NSMenuItem()
         let helpMenu = NSMenu(title: Localization.tr(en: "Help", de: "Hilfe"))
-        let helpAbout = NSMenuItem(title: Localization.tr(en: "About Rane Sixty-Eight...", de: "Info zu Rane Sixty-Eight..."), action: #selector(showAboutDialog), keyEquivalent: "")
+        let helpAbout = NSMenuItem(title: Localization.tr(en: "About Rane Sixty-Eight (v2.0.0)...", de: "Info zu Rane Sixty-Eight (v2.0.0)..."), action: #selector(showAboutDialog), keyEquivalent: "")
         helpAbout.target = self
         helpMenu.addItem(helpAbout)
         helpMenuItem.submenu = helpMenu

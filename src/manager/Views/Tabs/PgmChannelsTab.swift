@@ -69,19 +69,44 @@ extension MainWindowController {
             header.addArrangedSubview(titleLbl)
             chStack.addArrangedSubview(header)
 
-            // 1. Hardware Input Type Badge
-            let inTypeTitle = NSTextField(labelWithString: Localization.tr(en: "Hardware Switch:", de: "Hardware Schalter:"))
-            inTypeTitle.font = NSFont.systemFont(ofSize: 11, weight: .medium)
-            inTypeTitle.textColor = NSColor.secondaryLabelColor
+            // 1. Hardware-Schalter: 2 getrennte, zentrierte Felder
+            // Feld 1: Eingangswahl Rückseite (LINE (CD) oder PHONO / S/PDIF) - CC 112..115
+            // Feld 2: Kanal-Quelle Drehschalter (PH/CD oder USB oder AUX) - CC 116..119
+            let f1Title = NSTextField(labelWithString: Localization.tr(en: "1: Input (LINE / PHONO):", de: "1: Eingang (LINE / PHONO):"))
+            f1Title.font = NSFont.systemFont(ofSize: 10, weight: .medium)
+            f1Title.textColor = NSColor.secondaryLabelColor
+            f1Title.alignment = .center
+
             let inTypeBadge = NSTextField(labelWithString: "  LINE (CD)  ")
-            inTypeBadge.font = NSFont.boldSystemFont(ofSize: 11)
+            inTypeBadge.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
             inTypeBadge.textColor = NSColor.systemBlue
+            inTypeBadge.alignment = .center
             inTypeBadge.wantsLayer = true
             inTypeBadge.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.18).cgColor
             inTypeBadge.layer?.cornerRadius = 4
 
-            chStack.addArrangedSubview(inTypeTitle)
+            let f2Title = NSTextField(labelWithString: Localization.tr(en: "2: Source (PH/CD, USB, AUX):", de: "2: Quelle (PH/CD / USB / AUX):"))
+            f2Title.font = NSFont.systemFont(ofSize: 10, weight: .medium)
+            f2Title.textColor = NSColor.secondaryLabelColor
+            f2Title.alignment = .center
+
+            let sourceBadge = NSTextField(labelWithString: "    USB    ")
+            sourceBadge.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
+            sourceBadge.textColor = NSColor.systemTeal
+            sourceBadge.alignment = .center
+            sourceBadge.wantsLayer = true
+            sourceBadge.layer?.backgroundColor = NSColor.systemTeal.withAlphaComponent(0.18).cgColor
+            sourceBadge.layer?.cornerRadius = 4
+
+            chStack.addArrangedSubview(f1Title)
+            f1Title.widthAnchor.constraint(equalTo: chStack.widthAnchor).isActive = true
             chStack.addArrangedSubview(inTypeBadge)
+            inTypeBadge.widthAnchor.constraint(equalTo: chStack.widthAnchor).isActive = true
+
+            chStack.addArrangedSubview(f2Title)
+            f2Title.widthAnchor.constraint(equalTo: chStack.widthAnchor).isActive = true
+            chStack.addArrangedSubview(sourceBadge)
+            sourceBadge.widthAnchor.constraint(equalTo: chStack.widthAnchor).isActive = true
 
             let div1 = createDivider()
             chStack.addArrangedSubview(div1)
@@ -138,16 +163,41 @@ extension MainWindowController {
             chStack.addArrangedSubview(recSegment)
             recSegment.widthAnchor.constraint(equalTo: chStack.widthAnchor).isActive = true
 
-            let chCard = chStack.wrapInCard(cornerRadius: 10, padding: NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12))
+            let div4 = createDivider()
+            chStack.addArrangedSubview(div4)
+            div4.widthAnchor.constraint(equalTo: chStack.widthAnchor).isActive = true
+
+            // 5. Crossfader Position (Hardware-Anzeige im gleichen Badge-Stil wie oben)
+            let xfTitle = NSTextField(labelWithString: Localization.tr(en: "Crossfader (A / POST / B):", de: "Crossfader (A / POST / B):"))
+            xfTitle.font = NSFont.systemFont(ofSize: 10, weight: .medium)
+            xfTitle.textColor = NSColor.secondaryLabelColor
+            xfTitle.alignment = .center
+
+            let xfBadge = NSTextField(labelWithString: "      POST      ")
+            xfBadge.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
+            xfBadge.textColor = NSColor(white: 0.88, alpha: 1.0)
+            xfBadge.alignment = .center
+            xfBadge.wantsLayer = true
+            xfBadge.layer?.backgroundColor = NSColor(white: 0.35, alpha: 0.25).cgColor
+            xfBadge.layer?.cornerRadius = 4
+
+            chStack.addArrangedSubview(xfTitle)
+            xfTitle.widthAnchor.constraint(equalTo: chStack.widthAnchor).isActive = true
+            chStack.addArrangedSubview(xfBadge)
+            xfBadge.widthAnchor.constraint(equalTo: chStack.widthAnchor).isActive = true
+
+            let chCard = chStack.wrapInCard(cornerRadius: 10, padding: NSEdgeInsets(top: 10, left: 10, bottom: 10, right: 10))
             rowOfChannels.addArrangedSubview(chCard)
 
             channels.append(PgmChannelControls(
                 channelNumber: ch,
                 container: chCard,
-                inputBadge: inTypeBadge,
+                inputTypeBadge: inTypeBadge,
+                sourceBadge: sourceBadge,
                 phonoPopup: sensPopup,
                 resonanceSegment: resSegment,
-                recordSegment: recSegment
+                recordSegment: recSegment,
+                crossfaderBadge: xfBadge
             ))
         }
 

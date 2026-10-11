@@ -44,15 +44,15 @@ void StreamEngine::stop() {
     RLOG("StreamEngine stopped.");
 }
 
-void StreamEngine::readInput(uint64_t sampleTime, uint32_t frames, float *dstFloat16Ch) {
+void StreamEngine::readInput(uint64_t sampleTime, uint32_t frames, float *dstFloatIn) {
     if (mTransport && mRunning.load()) {
-        mTransport->readInput(sampleTime, frames, dstFloat16Ch);
+        mTransport->readInput(sampleTime, frames, dstFloatIn);
     }
 }
 
-void StreamEngine::writeOutput(uint64_t sampleTime, uint32_t frames, const float *srcFloat16Ch) {
+void StreamEngine::writeOutput(uint64_t sampleTime, uint32_t frames, const float *srcFloatOut) {
     if (mTransport && mRunning.load()) {
-        mTransport->writeOutput(sampleTime, frames, srcFloat16Ch);
+        mTransport->writeOutput(sampleTime, frames, srcFloatOut);
     }
 }
 
