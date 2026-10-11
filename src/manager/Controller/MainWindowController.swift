@@ -70,8 +70,9 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     var cpuStatusLabel: NSTextField!
     var sysLogTextView: NSTextView!
 
-    // Header CPU Badge
+    // Header Badges & Controls
     var headerCpuBadge: CpuBadgeView!
+    var headerPresetButton: NSButton!
 
     // LED Light Check
     var ledTestButton: NSButton?
@@ -343,6 +344,20 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         headerCpuBadge.update(percent: RaneCpuService.shared.systemCpuUsage)
         headerStack.addArrangedSubview(headerCpuBadge)
 
+        // Presets Menu Button
+        headerPresetButton = NSButton(title: "💾 Presets ▾", target: self, action: #selector(onHeaderPresetClicked))
+        headerPresetButton.bezelStyle = .inline
+        headerPresetButton.font = NSFont.systemFont(ofSize: 11, weight: .bold)
+        headerPresetButton.wantsLayer = true
+        headerPresetButton.layer?.cornerRadius = 6
+        headerPresetButton.layer?.backgroundColor = NSColor(white: 0.25, alpha: 0.5).cgColor
+        headerPresetButton.layer?.borderColor = NSColor(white: 0.40, alpha: 0.4).cgColor
+        headerPresetButton.layer?.borderWidth = 1.0
+        headerPresetButton.contentTintColor = NSColor.white
+        headerPresetButton.translatesAutoresizingMaskIntoConstraints = false
+        headerPresetButton.heightAnchor.constraint(equalToConstant: 24).isActive = true
+        headerStack.addArrangedSubview(headerPresetButton)
+
         mainStack.addArrangedSubview(headerStack)
         headerStack.centerXAnchor.constraint(equalTo: mainStack.centerXAnchor).isActive = true
 
@@ -461,5 +476,12 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         RaneMeterService.shared.pause()
+    }
+
+    // MARK: - Header Presets Menu Action
+    @objc func onHeaderPresetClicked(_ sender: NSButton) {
+        let menu = buildPresetsMenu()
+        let location = NSPoint(x: 0, y: sender.bounds.height + 4)
+        menu.popUp(positioning: nil, at: location, in: sender)
     }
 }

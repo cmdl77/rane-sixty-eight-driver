@@ -139,6 +139,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         latItem.submenu = latSubmenu
         menu.addItem(latItem)
 
+        // 3b. Presets Submenu
+        let presetsTitle = Localization.tr(en: "Mixer Presets", de: "Mixer-Presets")
+        let presetsItem = NSMenuItem(title: presetsTitle, action: nil, keyEquivalent: "")
+        if let wc = windowController {
+            presetsItem.submenu = wc.buildPresetsMenu()
+        }
+        menu.addItem(presetsItem)
+
         // 4. Audio Streams Info
         let ioInfo = NSMenuItem(
             title: Localization.tr(en: "Audio: 22 Channels (12 In / 10 Out)", de: "Audio: 22 Kanäle (12 In / 10 Out)"),
@@ -297,7 +305,42 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         appMenuItem.submenu = appMenu
         mainMenu.addItem(appMenuItem)
 
-        // 2. Settings Menu in Menu Bar
+        // 2. Presets Menu (Mixer Presets)
+        let presetsTopItem = NSMenuItem()
+        let presetsTopMenu = NSMenu(title: Localization.tr(en: "Presets", de: "Presets"))
+
+        for p in RanePresetService.shared.factoryPresets {
+            let item = NSMenuItem(title: p.name, action: #selector(applyFactoryPresetFromMenu(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = p
+            presetsTopMenu.addItem(item)
+        }
+
+        presetsTopMenu.addItem(NSMenuItem.separator())
+
+        let savePresetItem = NSMenuItem(title: Localization.tr(en: "Save Preset...", de: "Preset speichern..."), action: #selector(savePresetAction), keyEquivalent: "s")
+        savePresetItem.target = self
+        presetsTopMenu.addItem(savePresetItem)
+
+        let openPresetItem = NSMenuItem(title: Localization.tr(en: "Load Preset File...", de: "Preset aus Datei laden..."), action: #selector(openPresetAction), keyEquivalent: "o")
+        openPresetItem.target = self
+        presetsTopMenu.addItem(openPresetItem)
+
+        let exportPresetItem = NSMenuItem(title: Localization.tr(en: "Export Preset...", de: "Preset exportieren..."), action: #selector(exportPresetAction), keyEquivalent: "S")
+        exportPresetItem.keyEquivalentModifierMask = [.command, .shift]
+        exportPresetItem.target = self
+        presetsTopMenu.addItem(exportPresetItem)
+
+        presetsTopMenu.addItem(NSMenuItem.separator())
+
+        let resetPresetItem = NSMenuItem(title: Localization.tr(en: "Reset to Factory Default", de: "Werkseinstellungen wiederherstellen"), action: #selector(resetPresetAction), keyEquivalent: "r")
+        resetPresetItem.target = self
+        presetsTopMenu.addItem(resetPresetItem)
+
+        presetsTopItem.submenu = presetsTopMenu
+        mainMenu.addItem(presetsTopItem)
+
+        // 3. Settings Menu in Menu Bar
         let settingsTopItem = NSMenuItem()
         let settingsTopMenu = NSMenu(title: Localization.tr(en: "Settings", de: "Einstellungen"))
 
@@ -407,5 +450,28 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             alert.icon = icon
         }
         alert.runModal()
+    }
+
+    // MARK: - Preset Menu Actions
+    @objc func applyFactoryPresetFromMenu(_ sender: NSMenuItem) {
+        if let preset = sender.representedObject as? RaneMixerPreset {
+            windowController?.applyPreset(preset)
+        }
+    }
+
+    @objc func savePresetAction() {
+        windowController?.promptSavePreset()
+    }
+
+    @objc func openPresetAction() {
+        windowController?.openPresetFileDialog()
+    }
+
+    @objc func exportPresetAction() {
+        windowController?.exportPresetFileDialog()
+    }
+
+    @objc func resetPresetAction() {
+        windowController?.resetToFactoryDefaults()
     }
 }
