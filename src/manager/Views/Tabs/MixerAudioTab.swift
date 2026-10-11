@@ -8,7 +8,7 @@ extension MainWindowController {
         let page = NSStackView()
         page.orientation = .vertical
         page.alignment = .leading
-        page.spacing = 16
+        page.spacing = 10
         page.edgeInsets = NSEdgeInsets(top: 2, left: 0, bottom: 2, right: 0)
 
         // SECTION 1: HARDWARE CONTROLS & MONITOR
@@ -95,7 +95,11 @@ extension MainWindowController {
         card1Stack.addArrangedSubview(rowHigh)
         rowHigh.widthAnchor.constraint(equalTo: card1Stack.widthAnchor).isActive = true
 
-        let card1 = card1Stack.wrapInCard()
+        let card1 = card1Stack.wrapInDualTierSectionCard(
+            cardCornerRadius: 10,
+            cardPadding: NSEdgeInsets(top: 10, left: 14, bottom: 10, right: 14),
+            insetPadding: NSEdgeInsets(top: 8, left: 14, bottom: 8, right: 14)
+        )
         page.addArrangedSubview(card1)
         card1.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
 
@@ -188,7 +192,11 @@ extension MainWindowController {
         card2Stack.addArrangedSubview(rowUsbStat)
         rowUsbStat.widthAnchor.constraint(equalTo: card2Stack.widthAnchor).isActive = true
 
-        let card2 = card2Stack.wrapInCard()
+        let card2 = card2Stack.wrapInDualTierSectionCard(
+            cardCornerRadius: 10,
+            cardPadding: NSEdgeInsets(top: 10, left: 14, bottom: 10, right: 14),
+            insetPadding: NSEdgeInsets(top: 8, left: 14, bottom: 8, right: 14)
+        )
         page.addArrangedSubview(card2)
         card2.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
 

@@ -8,7 +8,7 @@ extension MainWindowController {
         let page = NSStackView()
         page.orientation = .vertical
         page.alignment = .leading
-        page.spacing = 16
+        page.spacing = 10
         page.edgeInsets = NSEdgeInsets(top: 2, left: 0, bottom: 2, right: 0)
 
         let secHeader = createSectionHeader(title: Localization.tr(en: "CoreMIDI Channel Configuration", de: "CoreMIDI Kanal-Konfiguration"))
@@ -48,7 +48,11 @@ extension MainWindowController {
         configStack.addArrangedSubview(outStack)
         configStack.addArrangedSubview(inStack)
 
-        let topCard = configStack.wrapInCard(padding: NSEdgeInsets(top: 14, left: 18, bottom: 14, right: 18))
+        let topCard = configStack.wrapInDualTierSectionCard(
+            cardCornerRadius: 10,
+            cardPadding: NSEdgeInsets(top: 12, left: 16, bottom: 12, right: 16),
+            insetPadding: NSEdgeInsets(top: 8, left: 14, bottom: 8, right: 14)
+        )
         page.addArrangedSubview(topCard)
         topCard.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
 
@@ -82,10 +86,19 @@ extension MainWindowController {
         midiLogTextView.textColor = NSColor(white: 0.90, alpha: 1.0)
         scroll.documentView = midiLogTextView
 
-        let scrollCard = scroll.wrapInInsetCard(padding: NSEdgeInsets(top: 8, left: 8, bottom: 8, right: 8))
+        let innerScrollCard = scroll.wrapInCard(
+            cornerRadius: 8,
+            borderColor: NSColor(white: 0.28, alpha: 0.45),
+            fillColor: NSColor(red: 0.10, green: 0.105, blue: 0.12, alpha: 1.0),
+            padding: NSEdgeInsets(top: 4, left: 4, bottom: 4, right: 4)
+        )
+        let scrollCard = innerScrollCard.wrapInInsetCard(
+            cornerRadius: 12,
+            padding: NSEdgeInsets(top: 8, left: 14, bottom: 8, right: 14)
+        )
         page.addArrangedSubview(scrollCard)
         scrollCard.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
-        scroll.heightAnchor.constraint(equalToConstant: 220).isActive = true
+        scroll.heightAnchor.constraint(equalToConstant: 200).isActive = true
 
         let bottomSpacer = NSView()
         bottomSpacer.setContentHuggingPriority(.defaultLow, for: .vertical)

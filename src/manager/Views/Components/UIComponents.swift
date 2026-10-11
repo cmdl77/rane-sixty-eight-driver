@@ -41,14 +41,32 @@ extension NSView {
     }
 
     func wrapInInsetCard(
-        cornerRadius: CGFloat = 10,
-        padding: NSEdgeInsets = NSEdgeInsets(top: 14, left: 14, bottom: 14, right: 14)
+        cornerRadius: CGFloat = 12,
+        padding: NSEdgeInsets = NSEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
     ) -> NSView {
         return wrapInCard(
             cornerRadius: cornerRadius,
             borderColor: NSColor(white: 0.20, alpha: 0.50),
             fillColor: NSColor(red: 0.118, green: 0.122, blue: 0.137, alpha: 1.0),
             padding: padding
+        )
+    }
+
+    /// Wraps a view inside a themed content card, and then wraps that card inside the outer dark inset window with 14pt margin alignment.
+    func wrapInDualTierSectionCard(
+        cardCornerRadius: CGFloat = 10,
+        cardPadding: NSEdgeInsets = NSEdgeInsets(top: 10, left: 16, bottom: 10, right: 16),
+        insetPadding: NSEdgeInsets = NSEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
+    ) -> NSView {
+        let innerCard = self.wrapInCard(
+            cornerRadius: cardCornerRadius,
+            borderColor: NSColor(white: 0.28, alpha: 0.45),
+            fillColor: NSColor(red: 0.176, green: 0.180, blue: 0.200, alpha: 1.0),
+            padding: cardPadding
+        )
+        return innerCard.wrapInInsetCard(
+            cornerRadius: 12,
+            padding: insetPadding
         )
     }
 }

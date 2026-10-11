@@ -428,11 +428,11 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
     private func targetWindowHeight(for index: Int) -> CGFloat {
         switch index {
-        case 0: return 705   // Mixer Audio
+        case 0: return 715   // Mixer Audio
         case 1: return 675   // PGM Channels 1–4
-        case 2: return 685   // Live MIDI
-        case 3: return 685   // System Status
-        default: return 695
+        case 2: return 695   // Live MIDI
+        case 3: return 715   // System Status
+        default: return 700
         }
     }
 
