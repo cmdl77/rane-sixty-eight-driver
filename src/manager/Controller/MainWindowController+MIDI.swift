@@ -136,13 +136,13 @@ extension MainWindowController {
                 let color: NSColor
                 switch value {
                 case 1:
-                    text = "  PHONO  "
+                    text = "PHONO"
                     color = NSColor.systemOrange
                 case 2:
-                    text = "  S/PDIF  "
+                    text = "S/PDIF"
                     color = NSColor.systemPurple
                 default:
-                    text = "  LINE (CD)  "
+                    text = "LINE (CD)"
                     color = NSColor.systemBlue
                 }
                 if channels[chIdx].inputTypeBadge.stringValue != text {
@@ -223,20 +223,20 @@ extension MainWindowController {
                 let color: NSColor
                 switch value {
                 case 1:
-                    text = "  CROSSFADER A  "
+                    text = "CROSSFADER A"
                     color = NSColor.systemOrange
                 case 2:
-                    text = "  CROSSFADER B  "
+                    text = "CROSSFADER B"
                     color = NSColor.systemBlue
                 default:
-                    text = "      POST      "
+                    text = "POST"
                     color = NSColor(white: 0.88, alpha: 1.0)
                 }
                 if channels[chIdx].crossfaderBadge.stringValue != text {
                     channels[chIdx].crossfaderBadge.stringValue = text
                     channels[chIdx].crossfaderBadge.textColor = color
                     channels[chIdx].crossfaderBadge.layer?.backgroundColor = color.withAlphaComponent(0.18).cgColor
-                    appendMidiLog("IN: PGM \(chIdx + 1) Crossfader -> [\(text.trimmingCharacters(in: .whitespaces))] (CC#\(cc)=\(value))")
+                    appendMidiLog("IN: PGM \(chIdx + 1) Crossfader -> [\(text)] (CC#\(cc)=\(value))")
                 }
             }
         } else if cc >= 116 && cc <= 119 {
@@ -248,16 +248,16 @@ extension MainWindowController {
                 let color: NSColor
                 switch value {
                 case 1, 2:
-                    text = "  PH / CD  "
+                    text = "PH / CD"
                     color = NSColor.systemOrange
                 case 3, 4:
-                    text = "    USB    "
+                    text = "USB"
                     color = NSColor.systemTeal
                 case 5, 6:
-                    text = "    AUX    "
+                    text = "AUX"
                     color = NSColor.systemGreen
                 default:
-                    text = "  PH / CD  "
+                    text = "PH / CD"
                     color = NSColor.systemOrange
                 }
                 if channels[chIdx].sourceBadge.stringValue != text {

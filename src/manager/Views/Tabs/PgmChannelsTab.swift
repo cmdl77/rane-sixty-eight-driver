@@ -77,26 +77,26 @@ extension MainWindowController {
             f1Title.textColor = NSColor.secondaryLabelColor
             f1Title.alignment = .center
 
-            let inTypeBadge = NSTextField(labelWithString: "  LINE (CD)  ")
-            inTypeBadge.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
-            inTypeBadge.textColor = NSColor.systemBlue
-            inTypeBadge.alignment = .center
-            inTypeBadge.wantsLayer = true
-            inTypeBadge.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.18).cgColor
-            inTypeBadge.layer?.cornerRadius = 4
+            let inTypeBadge = PgmBadgeTextField(
+                text: "LINE (CD)",
+                font: NSFont.monospacedSystemFont(ofSize: 11, weight: .bold),
+                textColor: NSColor.systemBlue,
+                bgColor: NSColor.systemBlue.withAlphaComponent(0.18),
+                height: 20
+            )
 
             let f2Title = NSTextField(labelWithString: Localization.tr(en: "2: Source (PH/CD, USB, AUX):", de: "2: Quelle (PH/CD / USB / AUX):"))
             f2Title.font = NSFont.systemFont(ofSize: 10, weight: .medium)
             f2Title.textColor = NSColor.secondaryLabelColor
             f2Title.alignment = .center
 
-            let sourceBadge = NSTextField(labelWithString: "    USB    ")
-            sourceBadge.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
-            sourceBadge.textColor = NSColor.systemTeal
-            sourceBadge.alignment = .center
-            sourceBadge.wantsLayer = true
-            sourceBadge.layer?.backgroundColor = NSColor.systemTeal.withAlphaComponent(0.18).cgColor
-            sourceBadge.layer?.cornerRadius = 4
+            let sourceBadge = PgmBadgeTextField(
+                text: "USB",
+                font: NSFont.monospacedSystemFont(ofSize: 11, weight: .bold),
+                textColor: NSColor.systemTeal,
+                bgColor: NSColor.systemTeal.withAlphaComponent(0.18),
+                height: 20
+            )
 
             chStack.addArrangedSubview(f1Title)
             f1Title.widthAnchor.constraint(equalTo: chStack.widthAnchor).isActive = true
@@ -173,13 +173,13 @@ extension MainWindowController {
             xfTitle.textColor = NSColor.secondaryLabelColor
             xfTitle.alignment = .center
 
-            let xfBadge = NSTextField(labelWithString: "      POST      ")
-            xfBadge.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
-            xfBadge.textColor = NSColor(white: 0.88, alpha: 1.0)
-            xfBadge.alignment = .center
-            xfBadge.wantsLayer = true
-            xfBadge.layer?.backgroundColor = NSColor(white: 0.35, alpha: 0.25).cgColor
-            xfBadge.layer?.cornerRadius = 4
+            let xfBadge = PgmBadgeTextField(
+                text: "POST",
+                font: NSFont.monospacedSystemFont(ofSize: 11, weight: .bold),
+                textColor: NSColor(white: 0.88, alpha: 1.0),
+                bgColor: NSColor(white: 0.35, alpha: 0.25),
+                height: 20
+            )
 
             chStack.addArrangedSubview(xfTitle)
             xfTitle.widthAnchor.constraint(equalTo: chStack.widthAnchor).isActive = true

@@ -286,3 +286,45 @@ extension MainWindowController {
         return valueField
     }
 }
+
+// MARK: - Vertically Centered Badge Field
+final class VerticallyCenteredTextFieldCell: NSTextFieldCell {
+    override func drawingRect(forBounds theRect: NSRect) -> NSRect {
+        var rect = super.drawingRect(forBounds: theRect)
+        let size = cellSize(forBounds: theRect)
+        let delta = theRect.height - size.height
+        if delta > 0 {
+            rect.origin.y += (delta / 2.0).rounded()
+            rect.size.height -= delta
+        }
+        return rect
+    }
+}
+
+final class PgmBadgeTextField: NSTextField {
+    override class var cellClass: AnyClass? {
+        get { return VerticallyCenteredTextFieldCell.self }
+        set {}
+    }
+
+    init(text: String, font: NSFont, textColor: NSColor, bgColor: NSColor, height: CGFloat = 20) {
+        super.init(frame: .zero)
+        self.cell = VerticallyCenteredTextFieldCell(textCell: text)
+        self.isEditable = false
+        self.isSelectable = false
+        self.isBordered = false
+        self.drawsBackground = false
+        self.alignment = .center
+        self.font = font
+        self.textColor = textColor
+        self.wantsLayer = true
+        self.layer?.backgroundColor = bgColor.cgColor
+        self.layer?.cornerRadius = 4
+        self.translatesAutoresizingMaskIntoConstraints = false
+        self.heightAnchor.constraint(equalToConstant: height).isActive = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
