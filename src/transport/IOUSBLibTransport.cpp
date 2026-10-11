@@ -728,12 +728,28 @@ bool IOUSBLibTransport::submitOut(uint32_t slot) {
             }
         }
     } else {
+        /* Bounded Latency & Drift Correction:
+         * Keep buffer occupancy tightly locked to the target cushion (at most 2x watermark).
+         * If host clock is slightly faster than mixer crystal or if USB transfers were delayed,
+         * prune the excess oldest frames so latency never builds up! */
+        size_t maxAllowedBytes = watermarkBytes * 2;
+        size_t curAvail = mOutRing.availableRead();
+        if (curAvail > maxAllowedBytes + wantBytes) {
+            size_t excessBytes = curAvail - maxAllowedBytes;
+            size_t frameBytes = kOutChannels * sizeof(float);
+            excessBytes = (excessBytes / frameBytes) * frameBytes;
+            if (excessBytes > 0) {
+                mOutRing.pop(nullptr, excessBytes);
+            }
+        }
+
         size_t poppedBytes = mOutRing.pop((uint8_t*)floatFrames, wantBytes);
         if (poppedBytes < wantBytes) {
             if (mXferErrLogCount.fetch_add(1, std::memory_order_relaxed) < 100) {
-                RLOG("OUT underrun! want: %zu, got: %zu. Padding with silence...", wantBytes, poppedBytes);
+                RLOG("OUT underrun! want: %zu, got: %zu. Re-buffering...", wantBytes, poppedBytes);
             }
             memset((uint8_t*)floatFrames + poppedBytes, 0, wantBytes - poppedBytes);
+            mOutPrerolled.store(false, std::memory_order_release);
         }
     }
 
@@ -973,9 +989,17 @@ void IOUSBLibTransport::readInput(uint64_t sampleTime, uint32_t frames, float *d
 
 void IOUSBLibTransport::writeOutput(uint64_t sampleTime, uint32_t frames, const float *srcFloatOut) {
     (void)sampleTime;
-    if (frames > 0) {
+    if (frames > 0 && srcFloatOut) {
         mHostPeriodFrames.store(frames, std::memory_order_relaxed);
         size_t writeBytes = frames * sizeof(float) * kOutChannels;
+        size_t availWrite = mOutRing.availableWrite();
+        if (availWrite < writeBytes) {
+            /* Emergency safety: drop oldest unplayed frames rather than truncating incoming buffer */
+            size_t needDrop = writeBytes - availWrite;
+            size_t frameBytes = kOutChannels * sizeof(float);
+            needDrop = ((needDrop + frameBytes - 1) / frameBytes) * frameBytes;
+            mOutRing.pop(nullptr, needDrop);
+        }
         mOutRing.push((const uint8_t*)srcFloatOut, writeBytes);
     }
 }

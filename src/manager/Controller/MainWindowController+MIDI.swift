@@ -73,7 +73,6 @@ extension MainWindowController {
             // Default USB-6 Record to Main Mix (CC 33 = 1 and CC 35 = 1)
             sendUserCC(cc: 33, value: 1)
             sendUserCC(cc: 35, value: 1)
-            RaneMeterService.shared.startAudioMonitoring()
         } else {
             headerStatusBadge?.stringValue = Localization.tr(en: "  ● Disconnected  ", de: "  ● Getrennt  ")
             headerStatusBadge?.textColor = NSColor.systemRed
@@ -82,8 +81,6 @@ extension MainWindowController {
             usbStatusBadge?.stringValue = Localization.tr(en: "  ● Offline  ", de: "  ● Offline  ")
             usbStatusBadge?.textColor = NSColor.systemRed
             usbStatusBadge?.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.15).cgColor
-
-            RaneMeterService.shared.stopAudioMonitoring()
         }
     }
 

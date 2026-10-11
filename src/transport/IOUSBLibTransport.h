@@ -24,11 +24,11 @@ public:
     static constexpr uint32_t kInChannels         = 12; /* 12 Record / Input channels (6 stereo pairs) */
     static constexpr uint32_t kOutChannels        = 10; /* 10 Playback / Output channels (5 stereo pairs) */
     static constexpr uint32_t kBytesPerFloat      = sizeof(float);
-    static constexpr uint32_t kRingFrames         = 32768;
+    static constexpr uint32_t kRingFrames         = 8192;
     static constexpr uint32_t kInRingBytes        = kRingFrames * kInChannels * kBytesPerFloat;
     static constexpr uint32_t kOutRingBytes       = kRingFrames * kOutChannels * kBytesPerFloat;
     static constexpr uint32_t kFramesPerXfer      = RANE_FRAMES_PER_PACKET; /* 48 */
-    static constexpr uint32_t kDoubleBuffer       = 4;
+    static constexpr uint32_t kDoubleBuffer       = 8;
 
     /* Real wire format (from UAC2 descriptors of the Sixty-Eight):
      *   EP 0x06 OUT: 10 ch, 4-byte subslot, 32-bit, async, wMaxPacketSize 280 (7 frames)

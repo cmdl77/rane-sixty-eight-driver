@@ -14,8 +14,6 @@ final class RaneMeterService {
     private var timer: DispatchSourceTimer?
     private let queue = DispatchQueue(label: "org.openrane.meterservice", qos: .userInteractive)
 
-    private var monitorIOProcId: AudioDeviceIOProcID?
-    private var monitoredDeviceId: AudioDeviceID = 0
 
     // Public state (updated on main thread for UI: 12 Inputs, 10 Outputs)
     private(set) var inPeaks: [Float] = Array(repeating: 0.0, count: 12)
@@ -44,67 +42,12 @@ final class RaneMeterService {
 
     private init() {
         openSharedMemory()
-        startAudioMonitoring()
         startPolling()
     }
 
     deinit {
         stopPolling()
-        stopAudioMonitoring()
         closeSharedMemory()
-    }
-
-    func startAudioMonitoring() {
-        guard monitorIOProcId == nil else { return }
-        var addr = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDevices,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var devCount: UInt32 = 0
-        AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &devCount)
-        let count = Int(devCount) / MemoryLayout<AudioDeviceID>.size
-        guard count > 0 else { return }
-        var devices = [AudioDeviceID](repeating: 0, count: count)
-        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &devCount, &devices) == noErr else { return }
-
-        for d in devices {
-            var nameSize = UInt32(MemoryLayout<CFString?>.size)
-            var nameAddr = AudioObjectPropertyAddress(
-                mSelector: kAudioObjectPropertyName,
-                mScope: kAudioObjectPropertyScopeGlobal,
-                mElement: kAudioObjectPropertyElementMain
-            )
-            var name: CFString?
-            if AudioObjectGetPropertyData(d, &nameAddr, 0, nil, &nameSize, &name) == noErr, let n = name as String? {
-                if n.contains("Rane") || n.contains("Sixty-Eight") {
-                    monitoredDeviceId = d
-                    break
-                }
-            }
-        }
-
-        guard monitoredDeviceId != 0 else { return }
-
-        var procId: AudioDeviceIOProcID?
-        let err = AudioDeviceCreateIOProcID(monitoredDeviceId, { (_, _, _, _, _, _, _) -> OSStatus in
-            // Passive monitoring tap: keeps CoreAudio active so driver calculates live peak meters!
-            return noErr
-        }, nil, &procId)
-
-        if err == noErr, let p = procId {
-            monitorIOProcId = p
-            AudioDeviceStart(monitoredDeviceId, p)
-        }
-    }
-
-    func stopAudioMonitoring() {
-        if let p = monitorIOProcId, monitoredDeviceId != 0 {
-            AudioDeviceStop(monitoredDeviceId, p)
-            AudioDeviceDestroyIOProcID(monitoredDeviceId, p)
-            monitorIOProcId = nil
-            monitoredDeviceId = 0
-        }
     }
 
     private func openSharedMemory() {
