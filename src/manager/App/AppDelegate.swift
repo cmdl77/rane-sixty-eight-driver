@@ -235,6 +235,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if windowController == nil {
             windowController = MainWindowController()
         }
+        RaneMeterService.shared.resume()
         windowController?.showWindow(nil)
         windowController?.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)

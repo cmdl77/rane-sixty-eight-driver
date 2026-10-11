@@ -110,28 +110,10 @@ class RaneMidiService {
     }
 
     private func checkHardwareHeartbeat() {
-        guard isUsbAttached && destEndpoint != 0 else {
-            if isResponsive {
-                isResponsive = false
-                evaluateConnectionState()
-            }
-            return
-        }
-
-        // Active Hardware Ping: SysEx Dump Query
-        sendSysEx([0xF0, 0x17, 0x04, 0x00, 0xF7])
-
-        let elapsed = Date().timeIntervalSince1970 - lastActivityTime
-        if elapsed > 4.5 {
-            if isResponsive {
-                isResponsive = false
-                evaluateConnectionState()
-            }
-        } else {
-            if !isResponsive {
-                isResponsive = true
-                evaluateConnectionState()
-            }
+        let attached = isUsbAttached && destEndpoint != 0 && isEndpointOnline(destEndpoint)
+        if attached != isResponsive {
+            isResponsive = attached
+            evaluateConnectionState()
         }
     }
 
@@ -196,6 +178,9 @@ class RaneMidiService {
         let current = isConnected
         if current != lastReportedState {
             lastReportedState = current
+            if current {
+                requestHardwareDump()
+            }
             DispatchQueue.main.async {
                 self.onConnectionStateChanged?(current)
             }

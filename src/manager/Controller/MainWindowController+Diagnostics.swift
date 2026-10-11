@@ -17,17 +17,9 @@ extension MainWindowController {
             let hasKext = FileManager.default.fileExists(atPath: "/Library/Extensions/RaneSixtyEight.kext") ||
                           FileManager.default.fileExists(atPath: "/System/Library/Extensions/RaneSixtyEight.kext")
 
-            // 2. LaunchAgent Check
-            var agentPid = ""
-            let pgrep = Process()
-            pgrep.launchPath = "/usr/bin/pgrep"
-            pgrep.arguments = ["-x", "RaneMIDIAgent"]
-            let pPipe = Pipe()
-            pgrep.standardOutput = pPipe
-            try? pgrep.run()
-            let pData = pPipe.fileHandleForReading.readDataToEndOfFile()
-            pgrep.waitUntilExit()
-            agentPid = String(data: pData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            // 2. LaunchAgent Check (Native Darwin API - 0 subprocesses/fork overhead)
+            let agentPidInt = self.findProcessPid(named: "RaneMIDIAgent")
+            let agentPid = (agentPidInt != nil) ? "\(agentPidInt!)" : ""
 
             // 3. USB Sixty-Eight Verbindung via CoreMIDI
             let hasDevice = RaneMidiService.shared.isConnected
@@ -120,6 +112,26 @@ extension MainWindowController {
                 service = IOIteratorNext(iterator)
             }
             IOObjectRelease(iterator)
+        }
+        return nil
+    }
+
+    private func findProcessPid(named: String) -> pid_t? {
+        var pids = [pid_t](repeating: 0, count: 2048)
+        let bytes = proc_listpids(UInt32(PROC_ALL_PIDS), 0, &pids, Int32(MemoryLayout<pid_t>.size * pids.count))
+        if bytes <= 0 { return nil }
+        let count = Int(bytes) / MemoryLayout<pid_t>.size
+        for i in 0..<count {
+            let pid = pids[i]
+            if pid <= 0 { continue }
+            var pathBuffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+            let pathLen = proc_pidpath(pid, &pathBuffer, UInt32(pathBuffer.count))
+            if pathLen > 0 {
+                let path = String(cString: pathBuffer)
+                if path.hasSuffix("/" + named) || path == named {
+                    return pid
+                }
+            }
         }
         return nil
     }

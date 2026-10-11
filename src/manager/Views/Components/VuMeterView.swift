@@ -186,22 +186,30 @@ class HorizontalStereoMeterView: NSView {
         leftBar.setLevel(linearPeak: leftPeak, linearHold: leftHold, clipped: leftClip)
         rightBar.setLevel(linearPeak: rightPeak, linearHold: rightHold, clipped: rightClip)
 
+        let targetText: String
+        let targetColor: NSColor
+
         let maxPeak = max(leftPeak, rightPeak)
         if leftClip || rightClip {
-            dbLabel.stringValue = "CLIP"
-            dbLabel.textColor = NSColor.systemRed
+            targetText = "CLIP"
+            targetColor = NSColor.systemRed
         } else if maxPeak > 0.001 {
             let dB = 20.0 * log10(Double(maxPeak))
             if dB >= -0.5 {
-                dbLabel.stringValue = "0 dB"
-                dbLabel.textColor = NSColor.systemYellow
+                targetText = "0 dB"
+                targetColor = NSColor.systemYellow
             } else {
-                dbLabel.stringValue = String(format: "%.0f dB", dB)
-                dbLabel.textColor = NSColor(white: 0.55, alpha: 1.0)
+                targetText = String(format: "%.0f dB", dB)
+                targetColor = NSColor(white: 0.55, alpha: 1.0)
             }
         } else {
-            dbLabel.stringValue = "-∞"
-            dbLabel.textColor = NSColor(white: 0.40, alpha: 1.0)
+            targetText = "-∞"
+            targetColor = NSColor(white: 0.40, alpha: 1.0)
+        }
+
+        if dbLabel.stringValue != targetText {
+            dbLabel.stringValue = targetText
+            dbLabel.textColor = targetColor
         }
     }
 }
@@ -369,16 +377,22 @@ class RaneIOMonitorBarView: NSView {
 
     private func updateFromService(_ svc: RaneMeterService) {
         if svc.isStreamingActive {
-            statusBadge.stringValue = Localization.tr(
+            let targetText = Localization.tr(
                 en: "  ● Active (\(svc.sampleRate / 1000) kHz / \(svc.bufferFrameSize)f)  ",
                 de: "  ● Aktiv (\(svc.sampleRate / 1000) kHz / \(svc.bufferFrameSize)f)  "
             )
-            statusBadge.textColor = NSColor.systemGreen
-            statusBadge.layer?.backgroundColor = NSColor.systemGreen.withAlphaComponent(0.15).cgColor
+            if statusBadge.stringValue != targetText {
+                statusBadge.stringValue = targetText
+                statusBadge.textColor = NSColor.systemGreen
+                statusBadge.layer?.backgroundColor = NSColor.systemGreen.withAlphaComponent(0.15).cgColor
+            }
         } else {
-            statusBadge.stringValue = Localization.tr(en: "  ● Idle (Standby)  ", de: "  ● Standby  ")
-            statusBadge.textColor = NSColor(white: 0.55, alpha: 1.0)
-            statusBadge.layer?.backgroundColor = NSColor(white: 0.20, alpha: 0.4).cgColor
+            let targetText = Localization.tr(en: "  ● Idle (Standby)  ", de: "  ● Standby  ")
+            if statusBadge.stringValue != targetText {
+                statusBadge.stringValue = targetText
+                statusBadge.textColor = NSColor(white: 0.55, alpha: 1.0)
+                statusBadge.layer?.backgroundColor = NSColor(white: 0.20, alpha: 0.4).cgColor
+            }
         }
 
         // Update 6 Stereo Input Pairs (12 channels)

@@ -76,8 +76,13 @@ final class RaneMeterService {
         }
     }
 
+    // State flags
+    private(set) var isPaused: Bool = false
+    private var isAlreadyZero: Bool = false
+
     func startPolling() {
         guard timer == nil else { return }
+        isPaused = false
         let t = DispatchSource.makeTimerSource(queue: queue)
         t.schedule(deadline: .now(), repeating: .milliseconds(33)) // ~30 FPS
         t.setEventHandler { [weak self] in
@@ -92,13 +97,28 @@ final class RaneMeterService {
         timer = nil
     }
 
+    func pause() {
+        isPaused = true
+        stopPolling()
+    }
+
+    func resume() {
+        if isPaused || timer == nil {
+            isPaused = false
+            startPolling()
+        }
+    }
+
     private func pollMeters() {
+        if isPaused { return }
         if mappedMemory == nil {
             openSharedMemory()
             if mappedMemory == nil {
+                if isAlreadyZero { return }
                 DispatchQueue.main.async { [weak self] in
                     guard let self = self else { return }
                     self.decayToZero()
+                    self.isAlreadyZero = true
                     self.onMetersUpdated?(self)
                 }
                 return
@@ -120,12 +140,23 @@ final class RaneMeterService {
         // Read 12 Input peaks starting at offset 48, and 10 Output peaks starting at offset 96
         var rawIn = [Float](repeating: 0, count: 12)
         var rawOut = [Float](repeating: 0, count: 10)
+        var hasSignal = false
 
         for i in 0..<12 {
-            rawIn[i] = ptr.load(fromByteOffset: 48 + i * 4, as: Float.self)
+            let val = ptr.load(fromByteOffset: 48 + i * 4, as: Float.self)
+            rawIn[i] = val
+            if val > 0.001 { hasSignal = true }
         }
         for i in 0..<10 {
-            rawOut[i] = ptr.load(fromByteOffset: 96 + i * 4, as: Float.self)
+            let val = ptr.load(fromByteOffset: 96 + i * 4, as: Float.self)
+            rawOut[i] = val
+            if val > 0.001 { hasSignal = true }
+        }
+
+        let isRunning = (isRunningVal != 0)
+        if !isRunning && !hasSignal && isAlreadyZero {
+            // Bereits im Leerlauf und Pegel bei Null -> kein Dispatch / Layout nötig
+            return
         }
 
         DispatchQueue.main.async { [weak self] in
@@ -193,6 +224,11 @@ final class RaneMeterService {
                     self.outClips[i] = false
                 }
             }
+
+            var maxVal: Float = 0.0
+            for v in self.inPeaks { if v > maxVal { maxVal = v } }
+            for v in self.outPeaks { if v > maxVal { maxVal = v } }
+            self.isAlreadyZero = (!isRunning && !hasSignal && maxVal < 0.001)
 
             self.onMetersUpdated?(self)
         }

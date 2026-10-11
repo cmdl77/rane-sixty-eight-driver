@@ -127,8 +127,10 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             }
         }
 
-        timer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: true) { [weak self] _ in
-            self?.refreshStatus()
+        timer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
+            if self?.segmentedNav?.selectedSegment == 3 {
+                self?.refreshStatus()
+            }
         }
     }
 
@@ -260,20 +262,9 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     private func setupModernUI() {
         guard let window = self.window, let contentView = window.contentView else { return }
 
-        // Visual Effect Background (Deep dark sleek slate)
-        let visualEffect = NSVisualEffectView()
-        visualEffect.blendingMode = .behindWindow
-        visualEffect.material = .underWindowBackground
-        visualEffect.state = .active
-        visualEffect.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(visualEffect)
-
-        NSLayoutConstraint.activate([
-            visualEffect.topAnchor.constraint(equalTo: contentView.topAnchor),
-            visualEffect.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-            visualEffect.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            visualEffect.trailingAnchor.constraint(equalTo: contentView.trailingAnchor)
-        ])
+        // Solid Dark Slate Background (0% GPU/WindowServer blur overhead)
+        contentView.wantsLayer = true
+        contentView.layer?.backgroundColor = NSColor(red: 0.137, green: 0.141, blue: 0.157, alpha: 1.0).cgColor
 
         // Main Layout Stack - Breitere Ränder (38 pt links/rechts)
         let mainStack = NSStackView()
@@ -282,13 +273,13 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         mainStack.spacing = 16
         mainStack.edgeInsets = NSEdgeInsets(top: 54, left: 38, bottom: 26, right: 38)
         mainStack.translatesAutoresizingMaskIntoConstraints = false
-        visualEffect.addSubview(mainStack)
+        contentView.addSubview(mainStack)
 
         NSLayoutConstraint.activate([
-            mainStack.topAnchor.constraint(equalTo: visualEffect.topAnchor),
-            mainStack.bottomAnchor.constraint(equalTo: visualEffect.bottomAnchor),
-            mainStack.leadingAnchor.constraint(equalTo: visualEffect.leadingAnchor),
-            mainStack.trailingAnchor.constraint(equalTo: visualEffect.trailingAnchor)
+            mainStack.topAnchor.constraint(equalTo: contentView.topAnchor),
+            mainStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            mainStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            mainStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor)
         ])
 
         // 1. Header Bar with Top-Down Rane Sixty-Eight Mixer Image & Single-Line Title (Zentriert)
@@ -451,5 +442,18 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             frame.size.height = targetHeight
             window.setFrame(frame, display: true, animate: animated)
         }
+    }
+
+    // MARK: - NSWindowDelegate (Pause/Resume on Minimize / Hide)
+    func windowDidMiniaturize(_ notification: Notification) {
+        RaneMeterService.shared.pause()
+    }
+
+    func windowDidDeminiaturize(_ notification: Notification) {
+        RaneMeterService.shared.resume()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        RaneMeterService.shared.pause()
     }
 }
