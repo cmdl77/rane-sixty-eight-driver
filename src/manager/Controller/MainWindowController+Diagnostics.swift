@@ -76,7 +76,24 @@ extension MainWindowController {
                     self.firmwareStatusLabel?.stringValue = "⚪️ Nicht ermittelt (Mixer verbinden)"
                     self.firmwareStatusLabel?.textColor = NSColor.secondaryLabelColor
                 }
+
+                self.updateDiagnosticsCpu(usage: RaneCpuService.shared.systemCpuUsage)
             }
+        }
+    }
+
+    func updateDiagnosticsCpu(usage: Double) {
+        guard let label = self.cpuStatusLabel else { return }
+        let cpuModel = RaneCpuService.shared.getCpuModelAndCores()
+        let dot = (usage > 80.0) ? "🔴" : ((usage > 50.0) ? "🟡" : "🟢")
+        let cpuText = "\(dot) \(String(format: "%.1f%%", usage)) — \(cpuModel)"
+        label.stringValue = cpuText
+        if usage > 80.0 {
+            label.textColor = NSColor.systemRed
+        } else if usage > 50.0 {
+            label.textColor = NSColor.systemOrange
+        } else {
+            label.textColor = NSColor.systemGreen
         }
     }
 

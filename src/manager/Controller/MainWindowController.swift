@@ -67,7 +67,11 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     var agentStatusLabel: NSTextField!
     var deviceStatusLabel: NSTextField!
     var firmwareStatusLabel: NSTextField!
+    var cpuStatusLabel: NSTextField!
     var sysLogTextView: NSTextView!
+
+    // Header CPU Badge
+    var headerCpuBadge: CpuBadgeView!
 
     // LED Light Check
     var ledTestButton: NSButton?
@@ -115,6 +119,13 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         setupModernUI()
         setupMidiListener()
         refreshStatus()
+
+        RaneCpuService.shared.onCpuUpdate = { [weak self] usage in
+            DispatchQueue.main.async {
+                self?.headerCpuBadge?.update(percent: usage)
+                self?.updateDiagnosticsCpu(usage: usage)
+            }
+        }
 
         timer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: true) { [weak self] _ in
             self?.refreshStatus()
@@ -229,6 +240,9 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             headerStatusBadge.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.15).cgColor
         }
 
+        headerCpuBadge?.updateTooltip()
+        headerCpuBadge?.update(percent: RaneCpuService.shared.systemCpuUsage)
+
         let ledTitle = isLedTestRunning ? Localization.tr(en: "⏹ Stop LED Check", de: "⏹ LED-Test Beenden")
                                         : Localization.tr(en: "💡 Mixer LED Light Test", de: "💡 Mixer LED-Lichtcheck")
         ledTestButton?.title = ledTitle
@@ -328,6 +342,15 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
         headerStatusBadge = createBadge(text: Localization.tr(en: "● Offline", de: "● Offline"), isConnected: false)
         headerStack.addArrangedSubview(headerStatusBadge)
+
+        headerCpuBadge = CpuBadgeView()
+        headerCpuBadge.onClick = { [weak self] in
+            guard let self = self else { return }
+            self.segmentedNav?.selectedSegment = 3
+            self.onTabChanged()
+        }
+        headerCpuBadge.update(percent: RaneCpuService.shared.systemCpuUsage)
+        headerStack.addArrangedSubview(headerCpuBadge)
 
         mainStack.addArrangedSubview(headerStack)
         headerStack.centerXAnchor.constraint(equalTo: mainStack.centerXAnchor).isActive = true

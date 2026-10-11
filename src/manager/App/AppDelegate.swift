@@ -90,6 +90,23 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statItem.isEnabled = false
         menu.addItem(statItem)
 
+        // 2b. System CPU Load
+        let cpuUsage = RaneCpuService.shared.systemCpuUsage
+        let cpuText = Localization.tr(
+            en: "⚡ System CPU: \(String(format: "%.1f%%", cpuUsage))",
+            de: "⚡ System CPU: \(String(format: "%.1f%%", cpuUsage))"
+        )
+        let cpuItem = NSMenuItem(title: cpuText, action: nil, keyEquivalent: "")
+        cpuItem.attributedTitle = NSAttributedString(
+            string: cpuText,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+                .foregroundColor: cpuUsage > 80.0 ? NSColor.systemRed : (cpuUsage > 50.0 ? NSColor.systemOrange : NSColor.systemGreen)
+            ]
+        )
+        cpuItem.isEnabled = false
+        menu.addItem(cpuItem)
+
         menu.addItem(NSMenuItem.separator())
 
         // 3. Current Latency / Buffer Submenu

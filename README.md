@@ -69,6 +69,10 @@ If macOS shows an alert stating *"Developer cannot be verified"*:
   - **Feld 1:** Physischer Rückseiten-Schalter (`LINE (CD)` vs. `PHONO` vs. `S/PDIF` – CC 112–115).
   - **Feld 2:** Exakte Drehschalter-Quellenwahl (`PH/CD 1–4`, `USB 1–4`, `AUX 1–4` – CC 116–119).
   - **Feld 3:** Crossfader-Zuweisung (`CROSSFADER A` vs. `POST` vs. `CROSSFADER B` – CC 120–123) im einheitlichen zentrierten Hardware-Badge-Stil.
+- **Echtzeit CPU-Auslastungsanzeige:**
+  - Kompaktes, farbcodiertes Hardware-Badge mit Micro-Meter-Balken direkt im Header (auf allen Tabs sichtbar, 1-Klick-Sprung zur Systemdiagnose).
+  - Detaillierte Systemauslastung mit CPU-Modell- und Kern-Erkennung in Tab 4 (*System Status*).
+  - Live CPU-Anzeige im macOS Menüleisten-Widget.
 - **Anti-Stutter MIDI-Quittierung & Slider-Drosselung:** Schützt den USB-Bus vor Überlastung beim schnellen Bewegen von Reglern (Phones Tone, LCD-Kontrast).
 - **macOS Menüleisten-Widget (Status Item):** Schneller Zugriff auf Puffergröße/Latenz, Verbindungsstatus und Audio MIDI Setup direkt aus der oberen macOS-Menüleiste.
 - **Zweisprachig (Deutsch & Englisch):** Vollständige Lokalisierung aller Tabs, Tooltips und Systemmenüs inklusive Versionsanzeige `v2.0.0`.
