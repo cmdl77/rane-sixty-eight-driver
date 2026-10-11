@@ -94,6 +94,28 @@ extension MainWindowController {
         return header
     }
 
+    func createSectionTopBar(icon: String, title: String, tintColor: NSColor = .systemBlue) -> NSView {
+        let topBar = NSStackView()
+        topBar.orientation = .horizontal
+        topBar.alignment = .centerY
+        topBar.spacing = 8
+        topBar.translatesAutoresizingMaskIntoConstraints = false
+
+        let iconView = NSImageView()
+        if let img = NSImage(systemSymbolName: icon, accessibilityDescription: nil) {
+            iconView.image = img.withSymbolConfiguration(.init(pointSize: 14, weight: .semibold))
+        }
+        iconView.contentTintColor = tintColor
+        topBar.addArrangedSubview(iconView)
+
+        let titleLabel = NSTextField(labelWithString: title)
+        titleLabel.font = NSFont.systemFont(ofSize: 13, weight: .bold)
+        titleLabel.textColor = NSColor(white: 0.95, alpha: 1.0)
+        topBar.addArrangedSubview(titleLabel)
+
+        return topBar
+    }
+
     func createSliderRow(
         symbol: String,
         title: String,

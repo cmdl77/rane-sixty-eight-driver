@@ -12,9 +12,17 @@ extension MainWindowController {
         page.edgeInsets = NSEdgeInsets(top: 2, left: 0, bottom: 2, right: 0)
 
         // SECTION 1: HARDWARE CONTROLS & MONITOR
-        let sec1Header = createSectionHeader(title: Localization.tr(en: "Hardware Controls & Monitor", de: "Hardware Bedienelemente & Monitor"))
-        page.addArrangedSubview(sec1Header)
-        sec1Header.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
+        let sec1Outer = NSStackView()
+        sec1Outer.orientation = .vertical
+        sec1Outer.alignment = .leading
+        sec1Outer.spacing = 10
+
+        let sec1TopBar = createSectionTopBar(
+            icon: "slider.horizontal.3",
+            title: Localization.tr(en: "Hardware Controls & Monitor", de: "Hardware Bedienelemente & Monitor"),
+            tintColor: .systemBlue
+        )
+        sec1Outer.addArrangedSubview(sec1TopBar)
 
         let card1Stack = NSStackView()
         card1Stack.orientation = .vertical
@@ -95,18 +103,34 @@ extension MainWindowController {
         card1Stack.addArrangedSubview(rowHigh)
         rowHigh.widthAnchor.constraint(equalTo: card1Stack.widthAnchor).isActive = true
 
-        let card1 = card1Stack.wrapInDualTierSectionCard(
-            cardCornerRadius: 10,
-            cardPadding: NSEdgeInsets(top: 10, left: 14, bottom: 10, right: 14),
-            insetPadding: NSEdgeInsets(top: 8, left: 14, bottom: 8, right: 14)
+        let card1 = card1Stack.wrapInCard(
+            cornerRadius: 10,
+            borderColor: NSColor(white: 0.28, alpha: 0.45),
+            fillColor: NSColor(red: 0.176, green: 0.180, blue: 0.200, alpha: 1.0),
+            padding: NSEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
         )
-        page.addArrangedSubview(card1)
-        card1.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
+        sec1Outer.addArrangedSubview(card1)
+        card1.widthAnchor.constraint(equalTo: sec1Outer.widthAnchor).isActive = true
+
+        let sec1Card = sec1Outer.wrapInInsetCard(
+            cornerRadius: 12,
+            padding: NSEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
+        )
+        page.addArrangedSubview(sec1Card)
+        sec1Card.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
 
         // SECTION 2: USB ROUTING & LATENCY
-        let sec2Header = createSectionHeader(title: Localization.tr(en: "USB Audio Routing & Interfaces", de: "USB Audio Routing & Schnittstellen"))
-        page.addArrangedSubview(sec2Header)
-        sec2Header.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
+        let sec2Outer = NSStackView()
+        sec2Outer.orientation = .vertical
+        sec2Outer.alignment = .leading
+        sec2Outer.spacing = 10
+
+        let sec2TopBar = createSectionTopBar(
+            icon: "cable.connector.horizontal",
+            title: Localization.tr(en: "USB Audio Routing & Interfaces", de: "USB Audio Routing & Schnittstellen"),
+            tintColor: .systemTeal
+        )
+        sec2Outer.addArrangedSubview(sec2TopBar)
 
         let card2Stack = NSStackView()
         card2Stack.orientation = .vertical
@@ -192,13 +216,21 @@ extension MainWindowController {
         card2Stack.addArrangedSubview(rowUsbStat)
         rowUsbStat.widthAnchor.constraint(equalTo: card2Stack.widthAnchor).isActive = true
 
-        let card2 = card2Stack.wrapInDualTierSectionCard(
-            cardCornerRadius: 10,
-            cardPadding: NSEdgeInsets(top: 10, left: 14, bottom: 10, right: 14),
-            insetPadding: NSEdgeInsets(top: 8, left: 14, bottom: 8, right: 14)
+        let card2 = card2Stack.wrapInCard(
+            cornerRadius: 10,
+            borderColor: NSColor(white: 0.28, alpha: 0.45),
+            fillColor: NSColor(red: 0.176, green: 0.180, blue: 0.200, alpha: 1.0),
+            padding: NSEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
         )
-        page.addArrangedSubview(card2)
-        card2.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
+        sec2Outer.addArrangedSubview(card2)
+        card2.widthAnchor.constraint(equalTo: sec2Outer.widthAnchor).isActive = true
+
+        let sec2Card = sec2Outer.wrapInInsetCard(
+            cornerRadius: 12,
+            padding: NSEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
+        )
+        page.addArrangedSubview(sec2Card)
+        sec2Card.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
 
         let bottomSpacer = NSView()
         bottomSpacer.setContentHuggingPriority(.defaultLow, for: .vertical)

@@ -346,20 +346,22 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         mainStack.addArrangedSubview(headerStack)
         headerStack.centerXAnchor.constraint(equalTo: mainStack.centerXAnchor).isActive = true
 
-        // 2. Segmented Navigation Bar (Zentriert)
+        // 2. Segmented Navigation Bar (Über die gesamte Fensterbreite mit Padding)
         segmentedNav = NSSegmentedControl(labels: [
-            Localization.tr(en: "  🎛 Mixer Audio  ", de: "  🎛 Mixer Audio  "),
-            Localization.tr(en: "  🎚 PGM Channels 1–4  ", de: "  🎚 PGM Kanäle 1–4  "),
-            Localization.tr(en: "  🎹 Live MIDI  ", de: "  🎹 Live MIDI  "),
-            Localization.tr(en: "  ⚙️ System Status  ", de: "  ⚙️ System Status  ")
+            Localization.tr(en: "🎛 Mixer Audio", de: "🎛 Mixer Audio"),
+            Localization.tr(en: "🎚 PGM Channels 1–4", de: "🎚 PGM Kanäle 1–4"),
+            Localization.tr(en: "🎹 Live MIDI", de: "🎹 Live MIDI"),
+            Localization.tr(en: "⚙️ System Status", de: "⚙️ System Status")
         ], trackingMode: .selectOne, target: self, action: #selector(onTabChanged))
         segmentedNav.selectedSegment = 0
         segmentedNav.segmentStyle = .texturedRounded
+        segmentedNav.segmentDistribution = .fillEqually
         segmentedNav.controlSize = .regular
         segmentedNav.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
 
         mainStack.addArrangedSubview(segmentedNav)
-        segmentedNav.centerXAnchor.constraint(equalTo: mainStack.centerXAnchor).isActive = true
+        segmentedNav.leadingAnchor.constraint(equalTo: mainStack.leadingAnchor).isActive = true
+        segmentedNav.trailingAnchor.constraint(equalTo: mainStack.trailingAnchor).isActive = true
 
         // 3. Content Container (Füllt volle Breite)
         contentContainer = NSView()

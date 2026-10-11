@@ -8,12 +8,8 @@ extension MainWindowController {
         let page = NSStackView()
         page.orientation = .vertical
         page.alignment = .leading
-        page.spacing = 16
+        page.spacing = 10
         page.edgeInsets = NSEdgeInsets(top: 2, left: 0, bottom: 2, right: 0)
-
-        let secHeader = createSectionHeader(title: Localization.tr(en: "PGM Channels 1–4 Hardware Configuration", de: "Hardware Eingangskanäle (PGM 1–4)"))
-        page.addArrangedSubview(secHeader)
-        secHeader.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
 
         // Outer Dark Inset Container
         let insetOuter = NSStackView()
@@ -21,19 +17,11 @@ extension MainWindowController {
         insetOuter.alignment = .leading
         insetOuter.spacing = 14
 
-        let topBar = NSStackView()
-        topBar.orientation = .horizontal
-        topBar.alignment = .centerY
-        topBar.spacing = 8
-        let eqIcon = NSImageView()
-        if let img = NSImage(systemSymbolName: "slider.vertical.3", accessibilityDescription: nil) {
-            eqIcon.image = img.withSymbolConfiguration(.init(pointSize: 14, weight: .semibold))
-        }
-        eqIcon.contentTintColor = NSColor.systemBlue
-        let eqTitle = NSTextField(labelWithString: Localization.tr(en: "Hardware Phono/Line Input Stages & Routing", de: "Hardware Phono/Line Eingangsstufen & Routing"))
-        eqTitle.font = NSFont.systemFont(ofSize: 13, weight: .bold)
-        topBar.addArrangedSubview(eqIcon)
-        topBar.addArrangedSubview(eqTitle)
+        let topBar = createSectionTopBar(
+            icon: "slider.vertical.3",
+            title: Localization.tr(en: "Hardware Phono/Line Input Stages & Routing", de: "Hardware Phono/Line Eingangsstufen & Routing"),
+            tintColor: .systemBlue
+        )
         insetOuter.addArrangedSubview(topBar)
 
         let rowOfChannels = NSStackView()

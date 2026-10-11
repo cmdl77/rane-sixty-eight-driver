@@ -11,9 +11,17 @@ extension MainWindowController {
         page.spacing = 10
         page.edgeInsets = NSEdgeInsets(top: 2, left: 0, bottom: 2, right: 0)
 
-        let secHeader = createSectionHeader(title: Localization.tr(en: "CoreMIDI Channel Configuration", de: "CoreMIDI Kanal-Konfiguration"))
-        page.addArrangedSubview(secHeader)
-        secHeader.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
+        let sec1Outer = NSStackView()
+        sec1Outer.orientation = .vertical
+        sec1Outer.alignment = .leading
+        sec1Outer.spacing = 10
+
+        let sec1TopBar = createSectionTopBar(
+            icon: "pianokeys",
+            title: Localization.tr(en: "CoreMIDI Channel Configuration", de: "CoreMIDI Kanal-Konfiguration"),
+            tintColor: .systemPurple
+        )
+        sec1Outer.addArrangedSubview(sec1TopBar)
 
         let configStack = NSStackView()
         configStack.orientation = .horizontal
@@ -48,18 +56,34 @@ extension MainWindowController {
         configStack.addArrangedSubview(outStack)
         configStack.addArrangedSubview(inStack)
 
-        let topCard = configStack.wrapInDualTierSectionCard(
-            cardCornerRadius: 10,
-            cardPadding: NSEdgeInsets(top: 12, left: 16, bottom: 12, right: 16),
-            insetPadding: NSEdgeInsets(top: 8, left: 14, bottom: 8, right: 14)
+        let topCard = configStack.wrapInCard(
+            cornerRadius: 10,
+            borderColor: NSColor(white: 0.28, alpha: 0.45),
+            fillColor: NSColor(red: 0.176, green: 0.180, blue: 0.200, alpha: 1.0),
+            padding: NSEdgeInsets(top: 12, left: 16, bottom: 12, right: 16)
         )
-        page.addArrangedSubview(topCard)
-        topCard.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
+        sec1Outer.addArrangedSubview(topCard)
+        topCard.widthAnchor.constraint(equalTo: sec1Outer.widthAnchor).isActive = true
+
+        let sec1Inset = sec1Outer.wrapInInsetCard(
+            cornerRadius: 12,
+            padding: NSEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
+        )
+        page.addArrangedSubview(sec1Inset)
+        sec1Inset.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
 
         // Live Monitor Section
-        let monHeader = createSectionHeader(title: Localization.tr(en: "Live MIDI Event Stream (Bidirectional)", de: "Live MIDI Event Stream (Bidirektional)"))
-        page.addArrangedSubview(monHeader)
-        monHeader.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
+        let sec2Outer = NSStackView()
+        sec2Outer.orientation = .vertical
+        sec2Outer.alignment = .leading
+        sec2Outer.spacing = 10
+
+        let sec2TopBar = createSectionTopBar(
+            icon: "terminal",
+            title: Localization.tr(en: "Live MIDI Event Stream (Bidirectional)", de: "Live MIDI Event Stream (Bidirektional)"),
+            tintColor: .systemGreen
+        )
+        sec2Outer.addArrangedSubview(sec2TopBar)
 
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
@@ -92,13 +116,16 @@ extension MainWindowController {
             fillColor: NSColor(red: 0.10, green: 0.105, blue: 0.12, alpha: 1.0),
             padding: NSEdgeInsets(top: 4, left: 4, bottom: 4, right: 4)
         )
-        let scrollCard = innerScrollCard.wrapInInsetCard(
+        sec2Outer.addArrangedSubview(innerScrollCard)
+        innerScrollCard.widthAnchor.constraint(equalTo: sec2Outer.widthAnchor).isActive = true
+
+        let sec2Inset = sec2Outer.wrapInInsetCard(
             cornerRadius: 12,
-            padding: NSEdgeInsets(top: 8, left: 14, bottom: 8, right: 14)
+            padding: NSEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
         )
-        page.addArrangedSubview(scrollCard)
-        scrollCard.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
-        scroll.heightAnchor.constraint(equalToConstant: 200).isActive = true
+        page.addArrangedSubview(sec2Inset)
+        sec2Inset.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
+        scroll.heightAnchor.constraint(equalToConstant: 180).isActive = true
 
         let bottomSpacer = NSView()
         bottomSpacer.setContentHuggingPriority(.defaultLow, for: .vertical)

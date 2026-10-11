@@ -11,9 +11,17 @@ extension MainWindowController {
         page.spacing = 10
         page.edgeInsets = NSEdgeInsets(top: 2, left: 0, bottom: 2, right: 0)
 
-        let sHeader = createSectionHeader(title: Localization.tr(en: "macOS Audio & MIDI Subsystem Diagnostics", de: "macOS Audio- & MIDI-Subsystem Diagnose"))
-        page.addArrangedSubview(sHeader)
-        sHeader.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
+        let diagContainerStack = NSStackView()
+        diagContainerStack.orientation = .vertical
+        diagContainerStack.alignment = .leading
+        diagContainerStack.spacing = 10
+
+        let sec1TopBar = createSectionTopBar(
+            icon: "waveform.badge.magnifyingglass",
+            title: Localization.tr(en: "macOS Audio & MIDI Subsystem Diagnostics", de: "macOS Audio- & MIDI-Subsystem Diagnose"),
+            tintColor: .systemBlue
+        )
+        diagContainerStack.addArrangedSubview(sec1TopBar)
 
         let statusStack = NSStackView()
         statusStack.orientation = .vertical
@@ -68,10 +76,6 @@ extension MainWindowController {
         btnRow.addArrangedSubview(ledBtn)
         btnRow.addArrangedSubview(stressBtn)
 
-        let diagContainerStack = NSStackView()
-        diagContainerStack.orientation = .vertical
-        diagContainerStack.alignment = .leading
-        diagContainerStack.spacing = 10
         diagContainerStack.addArrangedSubview(statusCard)
         statusCard.widthAnchor.constraint(equalTo: diagContainerStack.widthAnchor).isActive = true
         diagContainerStack.addArrangedSubview(btnRow)
@@ -79,14 +83,22 @@ extension MainWindowController {
 
         let diagInsetCard = diagContainerStack.wrapInInsetCard(
             cornerRadius: 12,
-            padding: NSEdgeInsets(top: 8, left: 14, bottom: 10, right: 14)
+            padding: NSEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
         )
         page.addArrangedSubview(diagInsetCard)
         diagInsetCard.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
 
-        let monHeader = createSectionHeader(title: Localization.tr(en: "Driver Log & Diagnostics", de: "Treiber Meldungen & Protokoll"))
-        page.addArrangedSubview(monHeader)
-        monHeader.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
+        let sec2Outer = NSStackView()
+        sec2Outer.orientation = .vertical
+        sec2Outer.alignment = .leading
+        sec2Outer.spacing = 10
+
+        let sec2TopBar = createSectionTopBar(
+            icon: "doc.text.magnifyingglass",
+            title: Localization.tr(en: "Driver Log & Diagnostics", de: "Treiber Meldungen & Protokoll"),
+            tintColor: .systemOrange
+        )
+        sec2Outer.addArrangedSubview(sec2TopBar)
 
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
@@ -106,9 +118,12 @@ extension MainWindowController {
             fillColor: NSColor(red: 0.10, green: 0.105, blue: 0.12, alpha: 1.0),
             padding: NSEdgeInsets(top: 4, left: 4, bottom: 4, right: 4)
         )
-        let scrollCard = innerScrollCard.wrapInInsetCard(
+        sec2Outer.addArrangedSubview(innerScrollCard)
+        innerScrollCard.widthAnchor.constraint(equalTo: sec2Outer.widthAnchor).isActive = true
+
+        let scrollCard = sec2Outer.wrapInInsetCard(
             cornerRadius: 12,
-            padding: NSEdgeInsets(top: 8, left: 14, bottom: 8, right: 14)
+            padding: NSEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
         )
         page.addArrangedSubview(scrollCard)
         scrollCard.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
