@@ -353,6 +353,7 @@ extension MainWindowController {
             .foregroundColor: NSColor(white: 0.90, alpha: 1.0)
         ])
         storage.append(attrStr)
+        tv.scrollRangeToVisible(NSRange(location: storage.length, length: 0))
 
         if let scroll = midiLogScrollView {
             let clip = scroll.contentView
