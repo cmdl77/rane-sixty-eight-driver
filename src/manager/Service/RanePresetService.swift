@@ -28,6 +28,10 @@ public struct RaneMixerPreset: Codable, Equatable {
     public var midiOutChannel: Int       // 1..16 or 17 (OFF), default 1
     public var midiInChannel: Int        // 1..16 or 17 (OFF), default 17 (OFF)
 
+    // Controller Manager: In Mappings & Out Mappings
+    public var midiMappings: [String: MidiMapping]?
+    public var midiOutMappings: [String: MidiOutMapping]?
+
     public init(
         name: String,
         description: String? = nil,
@@ -43,7 +47,9 @@ public struct RaneMixerPreset: Codable, Equatable {
         filterResonances: [Int] = [0, 0, 0, 0],
         recordSources: [Int] = [1, 1, 1, 1],
         midiOutChannel: Int = 1,
-        midiInChannel: Int = 17
+        midiInChannel: Int = 17,
+        midiMappings: [String: MidiMapping]? = nil,
+        midiOutMappings: [String: MidiOutMapping]? = nil
     ) {
         self.name = name
         self.description = description
@@ -60,6 +66,8 @@ public struct RaneMixerPreset: Codable, Equatable {
         self.recordSources = recordSources
         self.midiOutChannel = midiOutChannel
         self.midiInChannel = midiInChannel
+        self.midiMappings = midiMappings
+        self.midiOutMappings = midiOutMappings
     }
 }
 

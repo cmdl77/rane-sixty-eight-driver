@@ -543,6 +543,24 @@ public class RaneMidiLearnService {
         saveOutMappings()
     }
 
+    public var allMappings: [FlexFxMidiTarget: MidiMapping] {
+        return mappings
+    }
+
+    public var allOutMappings: [FlexFxMidiTarget: MidiOutMapping] {
+        return outMappings
+    }
+
+    public func applyMappings(_ newMappings: [FlexFxMidiTarget: MidiMapping]) {
+        self.mappings = newMappings
+        saveMappings()
+    }
+
+    public func applyOutMappings(_ newOutMappings: [FlexFxMidiTarget: MidiOutMapping]) {
+        self.outMappings = newOutMappings
+        saveOutMappings()
+    }
+
     public func clearAllOutMappings() {
         outMappings.removeAll()
         saveOutMappings()

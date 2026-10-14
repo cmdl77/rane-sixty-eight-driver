@@ -22,6 +22,17 @@ extension MainWindowController {
         let outCh = (midiOutPopup?.indexOfSelectedItem ?? 0) + 1
         let inCh = (midiInPopup?.indexOfSelectedItem ?? 16) + 1
 
+        // Snapshot current MIDI In & Out mappings
+        let learn = RaneMidiLearnService.shared
+        var inMapDict: [String: MidiMapping] = [:]
+        for (target, m) in learn.allMappings {
+            inMapDict[target.rawValue] = m
+        }
+        var outMapDict: [String: MidiOutMapping] = [:]
+        for (target, m) in learn.allOutMappings {
+            outMapDict[target.rawValue] = m
+        }
+
         return RaneMixerPreset(
             name: name,
             buttonBacklight: backlightState,
@@ -35,7 +46,9 @@ extension MainWindowController {
             filterResonances: pgmRes.count == 4 ? pgmRes : [0, 0, 0, 0],
             recordSources: pgmRec.count == 4 ? pgmRec : [1, 1, 1, 1],
             midiOutChannel: outCh,
-            midiInChannel: inCh
+            midiInChannel: inCh,
+            midiMappings: inMapDict,
+            midiOutMappings: outMapDict
         )
     }
 
@@ -86,6 +99,29 @@ extension MainWindowController {
             inPopup.selectItem(at: inIdx)
         }
         onMidiChannelChanged()
+
+        // 4. Controller Manager - MIDI In & Out Mappings (if preset contains them)
+        let learn = RaneMidiLearnService.shared
+        if let inMapDict = preset.midiMappings {
+            var loadedIn: [FlexFxMidiTarget: MidiMapping] = [:]
+            for (key, val) in inMapDict {
+                if let target = FlexFxMidiTarget(rawValue: key) {
+                    loadedIn[target] = val
+                }
+            }
+            learn.applyMappings(loadedIn)
+        }
+
+        if let outMapDict = preset.midiOutMappings {
+            var loadedOut: [FlexFxMidiTarget: MidiOutMapping] = [:]
+            for (key, val) in outMapDict {
+                if let target = FlexFxMidiTarget(rawValue: key) {
+                    loadedOut[target] = val
+                }
+            }
+            learn.applyOutMappings(loadedOut)
+            RaneFlexFxService.shared.updateHardwareLeds()
+        }
 
         appendSysLog("Mixer-Preset aktiviert: \"\(preset.name)\"")
 
