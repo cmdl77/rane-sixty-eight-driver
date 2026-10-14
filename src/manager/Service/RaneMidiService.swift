@@ -184,17 +184,70 @@ class RaneMidiService {
         }
     }
 
+    // Echo suppression: Outgoing MIDI messages sent to hardware/virtual endpoints
+    private struct OutgoingEcho {
+        let status: UInt8
+        let d1: UInt8
+        let d2: UInt8
+        let timestamp: TimeInterval
+    }
+    private var sentEchoes: [OutgoingEcho] = []
+    private let echoLock = NSLock()
+
+    private func recordSentMidi(status: UInt8, d1: UInt8, d2: UInt8) {
+        echoLock.lock()
+        defer { echoLock.unlock() }
+        let now = Date().timeIntervalSince1970
+        // Clean up entries older than 0.5s
+        sentEchoes.removeAll { now - $0.timestamp > 0.5 }
+        sentEchoes.append(OutgoingEcho(status: status, d1: d1, d2: d2, timestamp: now))
+    }
+
+    private func isEchoOfSentMidi(status: UInt8, d1: UInt8, d2: UInt8) -> Bool {
+        echoLock.lock()
+        defer { echoLock.unlock() }
+        let now = Date().timeIntervalSince1970
+        // Clean up entries older than 0.5s
+        sentEchoes.removeAll { now - $0.timestamp > 0.5 }
+
+        let isIncomingNoteOff = (status & 0xF0 == 0x80) || ((status & 0xF0 == 0x90) && d2 == 0)
+
+        // Check if this matches a recently sent message
+        if let idx = sentEchoes.firstIndex(where: { echo in
+            // Exact status & number match
+            if (echo.status & 0x0F) == (status & 0x0F) && echo.d1 == d1 {
+                let isSentNoteOff = (echo.status & 0xF0 == 0x80) || ((echo.status & 0xF0 == 0x90) && echo.d2 == 0)
+                if isIncomingNoteOff && isSentNoteOff {
+                    return true
+                }
+                if echo.status == status && echo.d2 == d2 {
+                    return true
+                }
+            }
+            return false
+        }) {
+            sentEchoes.remove(at: idx)
+            return true
+        }
+        return false
+    }
+
     func sendCC(cc: UInt8, value: UInt8, channel: UInt8 = 0) {
         guard isConnected else { return }
         if destEndpoint == 0 { connectEndpoints() }
         guard destEndpoint != 0 else { return }
 
+        let st = 0xB0 | (channel & 0x0F)
+        let c = cc & 0x7F
+        let v = value & 0x7F
+        recordSentMidi(status: st, d1: c, d2: v)
+
         var packet = MIDIPacket()
         packet.length = 3
         packet.timeStamp = 0
-        packet.data.0 = 0xB0 | (channel & 0x0F)
-        packet.data.1 = cc & 0x7F
-        packet.data.2 = value & 0x7F
+        packet.data.0 = st
+        packet.data.1 = c
+        packet.data.2 = v
 
         var list = MIDIPacketList(numPackets: 1, packet: packet)
         MIDISend(outPort, destEndpoint, &list)
@@ -205,12 +258,17 @@ class RaneMidiService {
         if destEndpoint == 0 { connectEndpoints() }
         guard destEndpoint != 0 else { return }
 
+        let st = 0x90 | (channel & 0x0F)
+        let n = note & 0x7F
+        let vel = velocity & 0x7F
+        recordSentMidi(status: st, d1: n, d2: vel)
+
         var packet = MIDIPacket()
         packet.length = 3
         packet.timeStamp = 0
-        packet.data.0 = 0x90 | (channel & 0x0F)
-        packet.data.1 = note & 0x7F
-        packet.data.2 = velocity & 0x7F
+        packet.data.0 = st
+        packet.data.1 = n
+        packet.data.2 = vel
 
         var list = MIDIPacketList(numPackets: 1, packet: packet)
         MIDISend(outPort, destEndpoint, &list)
@@ -221,12 +279,15 @@ class RaneMidiService {
         if destEndpoint == 0 { connectEndpoints() }
         guard destEndpoint != 0 else { return }
 
+        let ch = channel & 0x0F
+        let n = note & 0x7F
+        let st = 0x80 | ch
+        recordSentMidi(status: st, d1: n, d2: 0)
+
         var packet = MIDIPacket()
         packet.length = 3
         packet.timeStamp = 0
-        let ch = channel & 0x0F
-        let n = note & 0x7F
-        packet.data.0 = 0x80 | ch
+        packet.data.0 = st
         packet.data.1 = n
         packet.data.2 = 0
 
@@ -262,8 +323,11 @@ class RaneMidiService {
             let d1 = packet.data.1
             let d2 = packet.data.2
 
-            DispatchQueue.main.async {
-                self.onMidiReceived?(status, d1, d2)
+            // Filter out echoes of messages that our application just transmitted
+            if !isEchoOfSentMidi(status: status, d1: d1, d2: d2) {
+                DispatchQueue.main.async {
+                    self.onMidiReceived?(status, d1, d2)
+                }
             }
             packet = MIDIPacketNext(&packet).pointee
         }

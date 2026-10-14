@@ -566,6 +566,9 @@ public class RaneMidiLearnService {
         saveOutMappings()
     }
 
+    // Button debounce tracking: Target -> last trigger timestamp
+    private var lastButtonTriggerTimes: [FlexFxMidiTarget: TimeInterval] = [:]
+
     // MARK: - Incoming MIDI Event Handling
     /// Processes incoming Note or CC. Returns true if consumed/handled.
     @discardableResult
@@ -622,6 +625,7 @@ public class RaneMidiLearnService {
         var handled = false
         let isNoteOff = (typeNibble == 0x80) || (typeNibble == 0x90 && d2 == 0)
         let isPressed = isNoteMessage ? !isNoteOff : (d2 > 0)
+        let now = Date().timeIntervalSince1970
 
         for (target, mapping) in mappings {
             if mapping.type == msgType && mapping.number == d1 {
@@ -647,6 +651,15 @@ public class RaneMidiLearnService {
                         }
                     default:
                         break
+                    }
+
+                    // Debounce button press events within 120ms to prevent duplicate triggers / contact bouncing / MIDI bursts
+                    if isPressed {
+                        if let lastTime = lastButtonTriggerTimes[target], (now - lastTime) < 0.12 {
+                            handled = true
+                            continue
+                        }
+                        lastButtonTriggerTimes[target] = now
                     }
                 }
 
