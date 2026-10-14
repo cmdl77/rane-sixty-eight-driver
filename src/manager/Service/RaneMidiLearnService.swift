@@ -20,6 +20,13 @@ public enum FlexFxMidiTarget: String, CaseIterable, Codable {
     case prePost     = "PRE_POST"       // Pre/Post Fader toggle
     case modulePower = "MODULE_POWER"   // Module master power
     case abletonLink = "ABLETON_LINK"   // Ableton Link On/Off
+    case inputSelect = "INPUT_SELECT"   // Cycle Audio Input Source
+    case inputFlexFx = "INPUT_FLEXFX"   // Direct Select FlexFX Send (Ch 9–10)
+    case inputPgm1   = "INPUT_PGM1"     // Direct Select Deck 1 / PGM 1 (Ch 1–2)
+    case inputPgm2   = "INPUT_PGM2"     // Direct Select Deck 2 / PGM 2 (Ch 3–4)
+    case inputPgm3   = "INPUT_PGM3"     // Direct Select Deck 3 / PGM 3 (Ch 5–6)
+    case inputPgm4   = "INPUT_PGM4"     // Direct Select Deck 4 / PGM 4 (Ch 7–8)
+    case inputMainMix = "INPUT_MAIN_MIX" // Direct Select Main Mix / Mic (Ch 11–12)
 
     public var displayName: String {
         switch self {
@@ -38,6 +45,13 @@ public enum FlexFxMidiTarget: String, CaseIterable, Codable {
         case .prePost:      return "Pre / Post"
         case .modulePower:  return "Modul Power"
         case .abletonLink:  return "Ableton Link On/Off"
+        case .inputSelect:  return "Audio Eingang (Umschalten)"
+        case .inputFlexFx:  return "Eingang: FlexFX Send (Ch 9–10)"
+        case .inputPgm1:    return "Eingang: Deck 1 / PGM 1 (Ch 1–2)"
+        case .inputPgm2:    return "Eingang: Deck 2 / PGM 2 (Ch 3–4)"
+        case .inputPgm3:    return "Eingang: Deck 3 / PGM 3 (Ch 5–6)"
+        case .inputPgm4:    return "Eingang: Deck 4 / PGM 4 (Ch 7–8)"
+        case .inputMainMix: return "Eingang: Main Mix / Mic (Ch 11–12)"
         }
     }
 
@@ -71,6 +85,13 @@ public enum FlexFxMidiTarget: String, CaseIterable, Codable {
         case "PRE_POST": self = .prePost
         case "MODULE_POWER": self = .modulePower
         case "ABLETON_LINK": self = .abletonLink
+        case "INPUT_SELECT": self = .inputSelect
+        case "INPUT_FLEXFX": self = .inputFlexFx
+        case "INPUT_PGM1": self = .inputPgm1
+        case "INPUT_PGM2": self = .inputPgm2
+        case "INPUT_PGM3": self = .inputPgm3
+        case "INPUT_PGM4": self = .inputPgm4
+        case "INPUT_MAIN_MIX": self = .inputMainMix
         default: return nil
         }
     }
@@ -805,6 +826,26 @@ public class RaneMidiLearnService {
             } else {
                 flex.isLinkEnabled = (normValue > 0.5 || rawValue > 0)
             }
+        case .inputSelect:
+            if interactionType == .button {
+                if isPressed { flex.cycleInputSource() }
+            } else {
+                let all = FlexFxInputSource.allCases
+                let idx = min(all.count - 1, max(0, Int(normValue * Float(all.count))))
+                flex.inputSource = all[idx]
+            }
+        case .inputFlexFx:
+            if isPressed || interactionType == .faderKnob { flex.inputSource = .flexFxSend }
+        case .inputPgm1:
+            if isPressed || interactionType == .faderKnob { flex.inputSource = .pgm1 }
+        case .inputPgm2:
+            if isPressed || interactionType == .faderKnob { flex.inputSource = .pgm2 }
+        case .inputPgm3:
+            if isPressed || interactionType == .faderKnob { flex.inputSource = .pgm3 }
+        case .inputPgm4:
+            if isPressed || interactionType == .faderKnob { flex.inputSource = .pgm4 }
+        case .inputMainMix:
+            if isPressed || interactionType == .faderKnob { flex.inputSource = .mainMix }
         }
 
         onMidiActionTriggered?(target, normValue)

@@ -30,6 +30,9 @@ extension MainWindowController {
         var depthBadge: NSTextField!
         var tempoSlider: NSSlider!
         var tempoBadge: NSTextField!
+        var audioInputPopup: NSPopUpButton!
+        var rescanPluginsButton: NSButton!
+        var oledInputBadge: NSTextField!
     }
 
     private static var flexFxRefs = FlexFxUiReferences()
@@ -112,11 +115,73 @@ extension MainWindowController {
         fxCardStack.addArrangedSubview(div1)
         div1.widthAnchor.constraint(equalTo: fxCardStack.widthAnchor).isActive = true
 
-        // --- SUB-SECTION B: 6 PHYSICAL EFFECT SELECTOR BUTTONS (Clean Text, No Icons) ---
+        // --- SUB-SECTION B: 6 PHYSICAL EFFECT SELECTOR BUTTONS & ROUTING TOOLBAR ---
+        let matrixHeaderRow = NSStackView()
+        matrixHeaderRow.orientation = .horizontal
+        matrixHeaderRow.alignment = .centerY
+        matrixHeaderRow.spacing = 8
+        matrixHeaderRow.translatesAutoresizingMaskIntoConstraints = false
+
         let selectorLabel = NSTextField(labelWithString: Localization.tr(en: "EFFECT SELECTOR (HARDWARE MATRIX)", de: "EFFEKT-AUSWAHL (HARDWARE-MATRIX)"))
         selectorLabel.font = NSFont.systemFont(ofSize: 11, weight: .bold)
         selectorLabel.textColor = NSColor(white: 0.70, alpha: 1.0)
-        fxCardStack.addArrangedSubview(selectorLabel)
+        matrixHeaderRow.addArrangedSubview(selectorLabel)
+
+        let spacerMatrix = NSView()
+        spacerMatrix.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        matrixHeaderRow.addArrangedSubview(spacerMatrix)
+
+        // Audio Input Selector
+        let inputIcon = NSImageView()
+        if let img = NSImage(systemSymbolName: "cable.connector.horizontal", accessibilityDescription: nil) {
+            inputIcon.image = img.withSymbolConfiguration(.init(pointSize: 11, weight: .medium))
+        }
+        inputIcon.contentTintColor = NSColor.cyan
+        matrixHeaderRow.addArrangedSubview(inputIcon)
+
+        let inLabel = NSTextField(labelWithString: Localization.tr(en: "Input:", de: "Eingang:"))
+        inLabel.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        inLabel.textColor = NSColor(white: 0.75, alpha: 1.0)
+        matrixHeaderRow.addArrangedSubview(inLabel)
+
+        let inPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+        inPopup.bezelStyle = .rounded
+        inPopup.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        for src in FlexFxInputSource.allCases {
+            inPopup.addItem(withTitle: src.displayName)
+            inPopup.lastItem?.tag = src.rawValue
+        }
+        inPopup.selectItem(withTag: RaneFlexFxService.shared.inputSource.rawValue)
+        inPopup.target = self
+        inPopup.action = #selector(onAudioInputSelected(_:))
+        inPopup.translatesAutoresizingMaskIntoConstraints = false
+        inPopup.heightAnchor.constraint(equalToConstant: 24).isActive = true
+        matrixHeaderRow.addArrangedSubview(inPopup)
+        Self.flexFxRefs.audioInputPopup = inPopup
+
+        // Rescan Plugins Button
+        let rescanBtn = NSButton(
+            title: Localization.tr(en: "🔄 Scan VST Plugins", de: "🔄 VST-Plugins scannen"),
+            target: self,
+            action: #selector(onRescanPluginsClicked(_:))
+        )
+        rescanBtn.bezelStyle = .inline
+        rescanBtn.font = NSFont.systemFont(ofSize: 11, weight: .bold)
+        rescanBtn.wantsLayer = true
+        rescanBtn.layer?.cornerRadius = 5
+        rescanBtn.layer?.backgroundColor = NSColor(white: 0.22, alpha: 0.8).cgColor
+        rescanBtn.contentTintColor = NSColor.white
+        rescanBtn.toolTip = Localization.tr(
+            en: "Rescans macOS for newly installed VST and AudioUnit effect plugins",
+            de: "Scannt macOS nach neu installierten VST und AudioUnit Effekt-Plugins ab"
+        )
+        rescanBtn.translatesAutoresizingMaskIntoConstraints = false
+        rescanBtn.heightAnchor.constraint(equalToConstant: 24).isActive = true
+        matrixHeaderRow.addArrangedSubview(rescanBtn)
+        Self.flexFxRefs.rescanPluginsButton = rescanBtn
+
+        fxCardStack.addArrangedSubview(matrixHeaderRow)
+        matrixHeaderRow.widthAnchor.constraint(equalTo: fxCardStack.widthAnchor).isActive = true
 
         let fxButtonsGrid = createFxButtonsMatrix()
         fxCardStack.addArrangedSubview(fxButtonsGrid)
@@ -197,10 +262,26 @@ extension MainWindowController {
         col1.alignment = .leading
         col1.spacing = 2
 
+        let headerRow = NSStackView()
+        headerRow.orientation = .horizontal
+        headerRow.alignment = .centerY
+        headerRow.spacing = 6
+
         let fxHeader = NSTextField(labelWithString: "FLEXFX ENGINE")
         fxHeader.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .bold)
         fxHeader.textColor = NSColor(red: 0.35, green: 0.65, blue: 0.95, alpha: 0.9)
-        col1.addArrangedSubview(fxHeader)
+        headerRow.addArrangedSubview(fxHeader)
+
+        let inBadge = NSTextField(labelWithString: "IN: FLEXFX")
+        inBadge.font = NSFont.monospacedSystemFont(ofSize: 9, weight: .heavy)
+        inBadge.textColor = NSColor(red: 0.20, green: 0.85, blue: 0.95, alpha: 1.0)
+        inBadge.wantsLayer = true
+        inBadge.layer?.cornerRadius = 3
+        inBadge.layer?.backgroundColor = NSColor(red: 0.20, green: 0.85, blue: 0.95, alpha: 0.15).cgColor
+        headerRow.addArrangedSubview(inBadge)
+        Self.flexFxRefs.oledInputBadge = inBadge
+
+        col1.addArrangedSubview(headerRow)
 
         let fxName = NSTextField(labelWithString: "ECHO")
         fxName.font = NSFont.systemFont(ofSize: 24, weight: .black)
@@ -373,6 +454,12 @@ extension MainWindowController {
                 item.representedObject = p.id
                 popup.menu?.addItem(item)
             }
+        }
+    }
+
+    func rebuildAllPluginMenus() {
+        for (fx, popup) in Self.flexFxRefs.pluginPopups {
+            rebuildPluginMenu(for: popup, type: fx)
         }
     }
 
@@ -657,6 +744,10 @@ extension MainWindowController {
             }
         }
 
+        // 2b. Audio Input Selector & OLED Input Badge
+        Self.flexFxRefs.audioInputPopup?.selectItem(withTag: s.inputSource.rawValue)
+        Self.flexFxRefs.oledInputBadge?.stringValue = "IN: \(s.inputSource.shortName)"
+
         // 3. Highlight Effect Buttons & Update Titles to Plugin Name
         for (fx, btn) in Self.flexFxRefs.fxButtons {
             let slot = RanePluginHostService.shared.slots[fx.rawValue]
@@ -912,5 +1003,21 @@ extension MainWindowController {
         let rounded = round(sender.doubleValue * 10.0) / 10.0
         RaneFlexFxService.shared.setManualBpm(rounded)
         Self.flexFxRefs.tempoBadge?.stringValue = String(format: "%.1f", rounded)
+    }
+
+    @objc func onAudioInputSelected(_ sender: NSPopUpButton) {
+        guard let src = FlexFxInputSource(rawValue: sender.selectedTag()) else { return }
+        RaneFlexFxService.shared.inputSource = src
+        appendMidiLog("FlexFX Engine: Audio-Eingang gewählt -> [\(src.displayName)]")
+        updateFlexFxUi()
+    }
+
+    @objc func onRescanPluginsClicked(_ sender: NSButton) {
+        appendMidiLog("FlexFX Host: Scanne nach neuen VST/AudioUnit Plugins...")
+        RanePluginHostService.shared.rescanAvailablePlugins()
+        let count = RanePluginHostService.shared.availablePlugins.count
+        appendMidiLog("FlexFX Host: Scan abgeschlossen — \(count) AudioUnit/VST Plugins gefunden.")
+        rebuildAllPluginMenus()
+        updateFlexFxUi()
     }
 }

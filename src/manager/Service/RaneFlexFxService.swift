@@ -37,6 +37,48 @@ public enum FlexFxType: Int, CaseIterable, Codable {
     }
 }
 
+public enum FlexFxInputSource: Int, CaseIterable, Codable {
+    case flexFxSend = 0 // USB Ch 9-10 (Mixer HW FlexFX Send Bus, default)
+    case pgm1       = 1 // USB Ch 1-2  (Deck 1)
+    case pgm2       = 2 // USB Ch 3-4  (Deck 2)
+    case pgm3       = 3 // USB Ch 5-6  (Deck 3)
+    case pgm4       = 4 // USB Ch 7-8  (Deck 4)
+    case mainMix    = 5 // USB Ch 11-12 (Main Mix / Mic)
+
+    public var displayName: String {
+        switch self {
+        case .flexFxSend: return "FlexFX Send (Ch 9-10)"
+        case .pgm1:       return "Deck 1 / PGM 1 (Ch 1-2)"
+        case .pgm2:       return "Deck 2 / PGM 2 (Ch 3-4)"
+        case .pgm3:       return "Deck 3 / PGM 3 (Ch 5-6)"
+        case .pgm4:       return "Deck 4 / PGM 4 (Ch 7-8)"
+        case .mainMix:    return "Main Mix / Mic (Ch 11-12)"
+        }
+    }
+
+    public var shortName: String {
+        switch self {
+        case .flexFxSend: return "FLEXFX"
+        case .pgm1:       return "DECK 1"
+        case .pgm2:       return "DECK 2"
+        case .pgm3:       return "DECK 3"
+        case .pgm4:       return "DECK 4"
+        case .mainMix:    return "MAIN"
+        }
+    }
+
+    public var channelOffset: Int {
+        switch self {
+        case .flexFxSend: return 8
+        case .pgm1:       return 0
+        case .pgm2:       return 2
+        case .pgm3:       return 4
+        case .pgm4:       return 6
+        case .mainMix:    return 10
+        }
+    }
+}
+
 public struct FxParameters: Codable {
     // FILTER
     public var filterCutoff: Double = 1200.0   // 100 - 10000 Hz
@@ -190,6 +232,20 @@ class RaneFlexFxService {
             updateHardwareLeds()
         }
     }
+    private let inputSourceKey = "RaneSixtyEight_FlexFxInputSource_v1"
+    public var inputSource: FlexFxInputSource = .flexFxSend {
+        didSet {
+            UserDefaults.standard.set(inputSource.rawValue, forKey: inputSourceKey)
+            notifyStateChanged()
+            updateHardwareLeds()
+        }
+    }
+
+    public func cycleInputSource() {
+        let all = FlexFxInputSource.allCases
+        let nextIdx = (inputSource.rawValue + 1) % all.count
+        inputSource = all[nextIdx]
+    }
 
     // Callbacks for UI updates
     var onStateChanged: (() -> Void)?
@@ -321,6 +377,10 @@ class RaneFlexFxService {
 
         initDspBuffers()
         loadFxParams()
+        if let savedSource = UserDefaults.standard.object(forKey: inputSourceKey) as? Int,
+           let src = FlexFxInputSource(rawValue: savedSource) {
+            self.inputSource = src
+        }
         setupNativeAbletonLink()
         startAudioEngine()
         registerDeviceListener()
@@ -496,12 +556,13 @@ class RaneFlexFxService {
             return
         }
 
-        // 1. Capture USB In Channels 9 & 10 (0-indexed 8 & 9: FLEXFX SEND)
+        // 1. Capture USB In from selected input source (FlexFX Send Ch 9-10, Deck 1..4, or Main Mix)
         var maxIn: Float = 0.0
-        if inChannels >= 10 {
+        let chOffset = inputSource.channelOffset
+        if inChannels >= chOffset + 2 {
             for f in 0..<frames {
-                let sL = inPtr[f * inChannels + 8]
-                let sR = inPtr[f * inChannels + 9]
+                let sL = inPtr[f * inChannels + chOffset]
+                let sR = inPtr[f * inChannels + chOffset + 1]
                 scratchInL[f] = sL
                 scratchInR[f] = sR
                 let al = abs(sL)
@@ -664,7 +725,13 @@ class RaneFlexFxService {
             .fxDubDelay:  (currentFx == .dubDelay),
             .fxReverb:    (currentFx == .reverb),
             .prePost:     isPre,
-            .abletonLink: isLinkOn
+            .abletonLink: isLinkOn,
+            .inputFlexFx: (inputSource == .flexFxSend),
+            .inputPgm1:   (inputSource == .pgm1),
+            .inputPgm2:   (inputSource == .pgm2),
+            .inputPgm3:   (inputSource == .pgm3),
+            .inputPgm4:   (inputSource == .pgm4),
+            .inputMainMix:(inputSource == .mainMix)
         ]
 
         // 1. Process custom Out Mappings
