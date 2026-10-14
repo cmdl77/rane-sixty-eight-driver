@@ -539,6 +539,10 @@ public class RaneMidiLearnService {
     }
 
     public func setOutMapping(for target: FlexFxMidiTarget, mapping: MidiOutMapping) {
+        // Remove any other target that had this same out mapping to avoid hardware LED conflict
+        for (t, m) in outMappings where t != target && m.type == mapping.type && m.number == mapping.number && m.channel == mapping.channel {
+            outMappings.removeValue(forKey: t)
+        }
         outMappings[target] = mapping
         saveOutMappings()
     }

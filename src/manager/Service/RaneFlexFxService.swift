@@ -617,9 +617,22 @@ class RaneFlexFxService {
         let learn = RaneMidiLearnService.shared
         let midi = RaneMidiService.shared
 
-        // If module is disabled, set all mapped LEDs to their offColor
+        // If module is disabled, all effect LEDs are turned off, but modulePower should reflect isModuleEnabled (false/offValue)
         if !isModuleEnabled {
             clearAllHardwareLeds()
+            // Ensure modulePower LED reflects its off state (offValue)
+            if let pwrMap = learn.outMappingFor(target: .modulePower) {
+                let ch = (pwrMap.channel == 255) ? 0 : pwrMap.channel
+                if pwrMap.type == .note {
+                    if pwrMap.offValue > 0 {
+                        midi.sendNoteOn(note: pwrMap.number, velocity: pwrMap.offValue, channel: ch)
+                    } else {
+                        midi.sendNoteOff(note: pwrMap.number, channel: ch)
+                    }
+                } else {
+                    midi.sendCC(cc: pwrMap.number, value: pwrMap.offValue, channel: ch)
+                }
+            }
             return
         }
 
