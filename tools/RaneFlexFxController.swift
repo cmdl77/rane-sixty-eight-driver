@@ -68,7 +68,16 @@ class FlexFxWindowController: NSWindowController, NSWindowDelegate {
     private var timeSlider = NSSlider()
     private var timeLabel = NSTextField(labelWithString: "0")
     private var loopLevelSlider = NSSlider()
-    private var loopLevelLabel = NSTextField(labelWithString: "100%")
+    private var loopLevelLabel = NSTextField(labelWithString: "100")
+
+    // BPM & Auto-Tap Engine
+    private var targetBpm: Double = 124.0
+    private let bpmField = NSTextField()
+    private let bpmSlider = NSSlider()
+    private var autoSyncTimer: DispatchSourceTimer?
+    private var isAutoSyncRunning: Bool = false
+    private let autoSyncButton = NSButton()
+    private let tapIndicator = NSBox()
 
     // State tracking
     private var activeEffect: UInt8? = nil
@@ -78,13 +87,13 @@ class FlexFxWindowController: NSWindowController, NSWindowDelegate {
 
     convenience init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 100, y: 100, width: 920, height: 720),
+            contentRect: NSRect(x: 100, y: 100, width: 940, height: 760),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
-        window.title = "Rane Sixty-Eight - Hardware FlexFX DSP Controller"
-        window.minSize = NSSize(width: 860, height: 680)
+        window.title = "Rane Sixty-Eight - Hardware FlexFX DSP Controller & Tempo Sync"
+        window.minSize = NSSize(width: 880, height: 720)
         self.init(window: window)
         window.delegate = self
         setupUI()
@@ -107,33 +116,33 @@ class FlexFxWindowController: NSWindowController, NSWindowDelegate {
         mainScroll.drawsBackground = false
         visualEffect.addSubview(mainScroll)
 
-        let content = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 700))
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 920, height: 740))
 
         // Header
         let titleLabel = NSTextField(labelWithString: "RANE SIXTY-EIGHT")
         titleLabel.font = NSFont.monospacedSystemFont(ofSize: 22, weight: .black)
         titleLabel.textColor = NSColor(calibratedRed: 0.95, green: 0.60, blue: 0.15, alpha: 1.0)
-        titleLabel.frame = NSRect(x: 24, y: 650, width: 300, height: 28)
+        titleLabel.frame = NSRect(x: 24, y: 690, width: 300, height: 28)
         content.addSubview(titleLabel)
 
-        let subtitleLabel = NSTextField(labelWithString: "HARDWARE FLEXFX DSP MASTER CONTROLLER")
+        let subtitleLabel = NSTextField(labelWithString: "FLEXFX DSP & TAP TEMPO SYNC MASTER")
         subtitleLabel.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
         subtitleLabel.textColor = .secondaryLabelColor
-        subtitleLabel.frame = NSRect(x: 24, y: 634, width: 400, height: 16)
+        subtitleLabel.frame = NSRect(x: 24, y: 674, width: 400, height: 16)
         content.addSubview(subtitleLabel)
 
         statusLabel.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .medium)
         statusLabel.textColor = .systemRed
-        statusLabel.frame = NSRect(x: 440, y: 648, width: 320, height: 22)
+        statusLabel.frame = NSRect(x: 440, y: 688, width: 330, height: 22)
         content.addSubview(statusLabel)
 
-        let syncBtn = createActionButton(title: "SYNC (0x04)", x: 770, y: 642, width: 110, color: .systemBlue)
+        let syncBtn = createActionButton(title: "SYNC (0x04)", x: 780, y: 682, width: 115, color: .systemBlue)
         syncBtn.target = self
         syncBtn.action = #selector(onSyncClicked)
         content.addSubview(syncBtn)
 
         // 1. SECTION: DSP EFFECT SELECTION (6 Internal Effects)
-        let fxBox = NSBox(frame: NSRect(x: 20, y: 470, width: 860, height: 150))
+        let fxBox = NSBox(frame: NSRect(x: 20, y: 510, width: 880, height: 150))
         fxBox.title = "INTERNAL DSP EFFECTS (HARDWARE ENGINE)"
         fxBox.titleFont = NSFont.systemFont(ofSize: 12, weight: .bold)
         let fxView = NSView(frame: fxBox.contentView!.bounds)
@@ -149,7 +158,7 @@ class FlexFxWindowController: NSWindowController, NSWindowDelegate {
 
         var fxX: CGFloat = 20
         for fx in effects {
-            let btn = NSButton(frame: NSRect(x: fxX, y: 55, width: 125, height: 50))
+            let btn = NSButton(frame: NSRect(x: fxX, y: 55, width: 128, height: 50))
             btn.title = fx.name
             btn.bezelStyle = .regularSquare
             btn.isBordered = true
@@ -163,10 +172,9 @@ class FlexFxWindowController: NSWindowController, NSWindowDelegate {
             btn.action = #selector(onEffectClicked(_:))
             effectButtons[fx.note] = btn
             fxView.addSubview(btn)
-            fxX += 138
+            fxX += 142
         }
 
-        // Action Buttons under FX: Master FX ON / CUE
         fxOnButton = NSButton(frame: NSRect(x: 20, y: 12, width: 190, height: 34))
         fxOnButton.title = "⚡ MASTER FLEXFX ON"
         fxOnButton.bezelStyle = .regularSquare
@@ -187,7 +195,7 @@ class FlexFxWindowController: NSWindowController, NSWindowDelegate {
         fxCueButton.action = #selector(onFxCueToggle)
         fxView.addSubview(fxCueButton)
 
-        let clearLedsBtn = createActionButton(title: "CLEAR ALL LEDS (0x09)", x: 670, y: 12, width: 170, color: .systemGray)
+        let clearLedsBtn = createActionButton(title: "CLEAR ALL LEDS (0x09)", x: 690, y: 12, width: 170, color: .systemGray)
         clearLedsBtn.target = self
         clearLedsBtn.action = #selector(onClearLedsClicked)
         fxView.addSubview(clearLedsBtn)
@@ -195,60 +203,132 @@ class FlexFxWindowController: NSWindowController, NSWindowDelegate {
         fxBox.contentView = fxView
         content.addSubview(fxBox)
 
-        // 2. SECTION: BEAT DIVISIONS & TIMING
-        let timingBox = NSBox(frame: NSRect(x: 20, y: 320, width: 420, height: 140))
-        timingBox.title = "BEAT SYNC & TIME ENCODER"
-        timingBox.titleFont = NSFont.systemFont(ofSize: 12, weight: .bold)
-        let timingView = NSView(frame: timingBox.contentView!.bounds)
+        // 2. SECTION: AUTO-TAP TEMPO & BEAT SYNC ENGINE
+        let tempoBox = NSBox(frame: NSRect(x: 20, y: 320, width: 480, height: 180))
+        tempoBox.title = "TAP TEMPO & BPM HARDWARE SYNC (FIRMWARE TAP TRAIN)"
+        tempoBox.titleFont = NSFont.systemFont(ofSize: 12, weight: .bold)
+        let tempoView = NSView(frame: tempoBox.contentView!.bounds)
 
-        let beatDownBtn = createActionButton(title: "◀ BEAT DOWN", x: 15, y: 65, width: 120, color: .systemBlue)
+        // Target BPM label & input field
+        let bpmTitle = NSTextField(labelWithString: "Target BPM:")
+        bpmTitle.font = NSFont.systemFont(ofSize: 12, weight: .bold)
+        bpmTitle.frame = NSRect(x: 15, y: 118, width: 80, height: 18)
+        tempoView.addSubview(bpmTitle)
+
+        bpmField.frame = NSRect(x: 95, y: 114, width: 65, height: 26)
+        bpmField.font = NSFont.monospacedDigitSystemFont(ofSize: 14, weight: .bold)
+        bpmField.stringValue = "124.0"
+        bpmField.target = self
+        bpmField.action = #selector(onBpmFieldChanged)
+        tempoView.addSubview(bpmField)
+
+        bpmSlider.frame = NSRect(x: 170, y: 114, width: 200, height: 24)
+        bpmSlider.minValue = 60
+        bpmSlider.maxValue = 180
+        bpmSlider.doubleValue = 124.0
+        bpmSlider.target = self
+        bpmSlider.action = #selector(onBpmSliderChanged)
+        tempoView.addSubview(bpmSlider)
+
+        // Visual Tap Blinker Box
+        tapIndicator.frame = NSRect(x: 380, y: 116, width: 22, height: 22)
+        tapIndicator.wantsLayer = true
+        tapIndicator.layer?.cornerRadius = 11
+        tapIndicator.layer?.borderWidth = 2
+        tapIndicator.layer?.borderColor = NSColor.systemOrange.cgColor
+        tapIndicator.boxType = .custom
+        tempoView.addSubview(tapIndicator)
+
+        // Preset Tempo Pills: 120, 124, 126, 128, 130, 140
+        let presets: [Double] = [120, 124, 126, 128, 130, 140]
+        var pX: CGFloat = 15
+        for p in presets {
+            let pBtn = NSButton(frame: NSRect(x: pX, y: 78, width: 65, height: 26))
+            pBtn.title = "\(Int(p))"
+            pBtn.bezelStyle = .rounded
+            pBtn.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .bold)
+            pBtn.tag = Int(p)
+            pBtn.target = self
+            pBtn.action = #selector(onPresetBpmClicked(_:))
+            tempoView.addSubview(pBtn)
+            pX += 72
+        }
+
+        // Tap Actions
+        let syncTrainBtn = NSButton(frame: NSRect(x: 15, y: 35, width: 195, height: 32))
+        syncTrainBtn.title = "⚡ SEND 5x TAP TRAIN"
+        syncTrainBtn.bezelStyle = .regularSquare
+        syncTrainBtn.font = NSFont.systemFont(ofSize: 11, weight: .black)
+        syncTrainBtn.wantsLayer = true
+        syncTrainBtn.layer?.cornerRadius = 6
+        syncTrainBtn.layer?.backgroundColor = NSColor.systemOrange.withAlphaComponent(0.3).cgColor
+        syncTrainBtn.layer?.borderColor = NSColor.systemOrange.cgColor
+        syncTrainBtn.layer?.borderWidth = 1.5
+        syncTrainBtn.target = self
+        syncTrainBtn.action = #selector(onSyncTempoTrainClicked)
+        tempoView.addSubview(syncTrainBtn)
+
+        autoSyncButton.frame = NSRect(x: 220, y: 35, width: 180, height: 32)
+        autoSyncButton.title = "🔁 CONTINUOUS SYNC"
+        autoSyncButton.bezelStyle = .regularSquare
+        autoSyncButton.font = NSFont.systemFont(ofSize: 11, weight: .bold)
+        autoSyncButton.wantsLayer = true
+        autoSyncButton.layer?.cornerRadius = 6
+        autoSyncButton.layer?.borderColor = NSColor.secondaryLabelColor.withAlphaComponent(0.3).cgColor
+        autoSyncButton.layer?.borderWidth = 1
+        autoSyncButton.target = self
+        autoSyncButton.action = #selector(onContinuousSyncToggled)
+        tempoView.addSubview(autoSyncButton)
+
+        // Single Manual Tap
+        let manualTapBtn = createActionButton(title: "TAP (Note #5)", x: 15, y: 4, width: 120, color: .systemOrange)
+        manualTapBtn.target = self
+        manualTapBtn.action = #selector(onTapClicked)
+        tempoView.addSubview(manualTapBtn)
+
+        let beatDownBtn = createActionButton(title: "◀ BEAT DOWN", x: 145, y: 4, width: 110, color: .systemBlue)
         beatDownBtn.target = self
         beatDownBtn.action = #selector(onBeatDownClicked)
-        timingView.addSubview(beatDownBtn)
+        tempoView.addSubview(beatDownBtn)
 
-        let beatUpBtn = createActionButton(title: "BEAT UP ▶", x: 145, y: 65, width: 120, color: .systemBlue)
+        let beatUpBtn = createActionButton(title: "BEAT UP ▶", x: 265, y: 4, width: 110, color: .systemBlue)
         beatUpBtn.target = self
         beatUpBtn.action = #selector(onBeatUpClicked)
-        timingView.addSubview(beatUpBtn)
+        tempoView.addSubview(beatUpBtn)
 
-        let tapBtn = createActionButton(title: "TAP TEMPO", x: 275, y: 65, width: 115, color: .systemOrange)
-        tapBtn.target = self
-        tapBtn.action = #selector(onTapClicked)
-        timingView.addSubview(tapBtn)
+        tempoBox.contentView = tempoView
+        content.addSubview(tempoBox)
+
+        // 3. SECTION: RETURN LEVEL & TIME ENCODER
+        let levelBox = NSBox(frame: NSRect(x: 510, y: 320, width: 390, height: 180))
+        levelBox.title = "FX PARAMETERS & LEVEL"
+        levelBox.titleFont = NSFont.systemFont(ofSize: 12, weight: .bold)
+        let levelView = NSView(frame: levelBox.contentView!.bounds)
 
         let timeTitle = NSTextField(labelWithString: "FX Time / Parameter (CC #20):")
-        timeTitle.font = NSFont.systemFont(ofSize: 11, weight: .medium)
-        timeTitle.frame = NSRect(x: 15, y: 22, width: 180, height: 16)
-        timingView.addSubview(timeTitle)
+        timeTitle.font = NSFont.systemFont(ofSize: 11, weight: .bold)
+        timeTitle.frame = NSRect(x: 15, y: 120, width: 220, height: 16)
+        levelView.addSubview(timeTitle)
 
-        timeSlider.frame = NSRect(x: 195, y: 18, width: 160, height: 24)
+        timeSlider.frame = NSRect(x: 15, y: 92, width: 280, height: 24)
         timeSlider.minValue = 0
         timeSlider.maxValue = 127
         timeSlider.intValue = 64
         timeSlider.target = self
         timeSlider.action = #selector(onTimeSliderChanged(_:))
-        timingView.addSubview(timeSlider)
+        levelView.addSubview(timeSlider)
 
-        timeLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .bold)
-        timeLabel.frame = NSRect(x: 365, y: 22, width: 40, height: 16)
+        timeLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .black)
+        timeLabel.frame = NSRect(x: 305, y: 94, width: 45, height: 20)
         timeLabel.stringValue = "64"
-        timingView.addSubview(timeLabel)
+        levelView.addSubview(timeLabel)
 
-        timingBox.contentView = timingView
-        content.addSubview(timingBox)
-
-        // 3. SECTION: RETURN LEVEL & DRY/WET
-        let levelBox = NSBox(frame: NSRect(x: 460, y: 320, width: 420, height: 140))
-        levelBox.title = "FLEXFX RETURN / LOOP LEVEL"
-        levelBox.titleFont = NSFont.systemFont(ofSize: 12, weight: .bold)
-        let levelView = NSView(frame: levelBox.contentView!.bounds)
-
-        let loopLevelTitle = NSTextField(labelWithString: "Return Level (CC #96):")
-        loopLevelTitle.font = NSFont.systemFont(ofSize: 12, weight: .medium)
-        loopLevelTitle.frame = NSRect(x: 20, y: 70, width: 160, height: 18)
+        let loopLevelTitle = NSTextField(labelWithString: "FlexFX Return Level (CC #96):")
+        loopLevelTitle.font = NSFont.systemFont(ofSize: 11, weight: .bold)
+        loopLevelTitle.frame = NSRect(x: 15, y: 55, width: 220, height: 16)
         levelView.addSubview(loopLevelTitle)
 
-        loopLevelSlider.frame = NSRect(x: 20, y: 35, width: 300, height: 28)
+        loopLevelSlider.frame = NSRect(x: 15, y: 25, width: 280, height: 24)
         loopLevelSlider.minValue = 0
         loopLevelSlider.maxValue = 127
         loopLevelSlider.intValue = 100
@@ -256,8 +336,8 @@ class FlexFxWindowController: NSWindowController, NSWindowDelegate {
         loopLevelSlider.action = #selector(onLoopLevelSliderChanged(_:))
         levelView.addSubview(loopLevelSlider)
 
-        loopLevelLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 14, weight: .black)
-        loopLevelLabel.frame = NSRect(x: 330, y: 38, width: 60, height: 20)
+        loopLevelLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .black)
+        loopLevelLabel.frame = NSRect(x: 305, y: 27, width: 45, height: 20)
         loopLevelLabel.stringValue = "100"
         levelView.addSubview(loopLevelLabel)
 
@@ -265,7 +345,7 @@ class FlexFxWindowController: NSWindowController, NSWindowDelegate {
         content.addSubview(levelBox)
 
         // 4. SECTION: ROUTING MATRIX (Channel Sends)
-        let routingBox = NSBox(frame: NSRect(x: 20, y: 190, width: 860, height: 120))
+        let routingBox = NSBox(frame: NSRect(x: 20, y: 195, width: 880, height: 115))
         routingBox.title = "FLEXFX CHANNEL ROUTING (WHERE EFFECTS ARE INSERTED)"
         routingBox.titleFont = NSFont.systemFont(ofSize: 12, weight: .bold)
         let routingView = NSView(frame: routingBox.contentView!.bounds)
@@ -283,7 +363,7 @@ class FlexFxWindowController: NSWindowController, NSWindowDelegate {
 
         var rX: CGFloat = 15
         for ch in channels {
-            let btn = NSButton(frame: NSRect(x: rX, y: 25, width: 95, height: 50))
+            let btn = NSButton(frame: NSRect(x: rX, y: 22, width: 98, height: 48))
             btn.title = ch.title
             btn.bezelStyle = .regularSquare
             btn.isBordered = true
@@ -297,18 +377,18 @@ class FlexFxWindowController: NSWindowController, NSWindowDelegate {
             routingStates[ch.note] = false
             updateRoutingButtonStyle(btn, active: false)
             routingView.addSubview(btn)
-            rX += 105
+            rX += 108
         }
 
         routingBox.contentView = routingView
         content.addSubview(routingBox)
 
-        // 5. SECTION: LIVE MIDI / SYSEX MONITOR
-        let logBox = NSBox(frame: NSRect(x: 20, y: 15, width: 860, height: 165))
-        logBox.title = "LIVE HARDWARE EVENT LOG (MIDI IN & OUT)"
+        // 5. SECTION: LIVE HARDWARE EVENT LOG
+        let logBox = NSBox(frame: NSRect(x: 20, y: 10, width: 880, height: 175))
+        logBox.title = "LIVE HARDWARE EVENT LOG (AUTO-SCROLL TO LATEST LINE)"
         logBox.titleFont = NSFont.systemFont(ofSize: 11, weight: .bold)
 
-        let scroll = NSScrollView(frame: NSRect(x: 10, y: 10, width: 840, height: 125))
+        let scroll = NSScrollView(frame: NSRect(x: 10, y: 10, width: 860, height: 135))
         scroll.hasVerticalScroller = true
         scroll.autoresizingMask = [.width, .height]
         logTextView.isEditable = false
@@ -392,17 +472,15 @@ class FlexFxWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    // MARK: - MIDI Transmission
+    // MARK: - Reliable CoreMIDI Transmission
     private func sendMidiPacket(_ bytes: [UInt8]) {
         guard destEndpoint != 0 else { return }
-        var packet = MIDIPacket()
-        packet.length = UInt16(min(bytes.count, 256))
-        packet.timeStamp = 0
-        withUnsafeMutableBytes(of: &packet.data) { ptr in
-            for i in 0..<Int(packet.length) { ptr[i] = bytes[i] }
+        var packetList = MIDIPacketList()
+        var packet = MIDIPacketListInit(&packetList)
+        bytes.withUnsafeBufferPointer { ptr in
+            packet = MIDIPacketListAdd(&packetList, 1024, packet, 0, ptr.count, ptr.baseAddress!)
         }
-        var list = MIDIPacketList(numPackets: 1, packet: packet)
-        MIDISend(outPort, destEndpoint, &list)
+        MIDISend(outPort, destEndpoint, &packetList)
         let hex = bytes.map { String(format: "%02X", $0) }.joined(separator: " ")
         appendLog(">> SEND: \(hex)")
     }
@@ -421,12 +499,93 @@ class FlexFxWindowController: NSWindowController, NSWindowDelegate {
         sendMidiPacket([RaneProtocol.sysExStart, RaneProtocol.manufacturerId, RaneProtocol.Opcode.audioUnmute, 0x00, RaneProtocol.sysExEnd])
     }
 
-    // MARK: - Actions
+    // MARK: - Tap Tempo & BPM Sync Engine
+    func sendSingleTapPulse() {
+        sendNote(note: RaneProtocol.FX.tap, velocity: 127)
+        DispatchQueue.main.async {
+            self.tapIndicator.layer?.backgroundColor = NSColor.systemOrange.cgColor
+        }
+        DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + 0.035) {
+            self.sendNote(note: RaneProtocol.FX.tap, velocity: 0)
+            DispatchQueue.main.async {
+                self.tapIndicator.layer?.backgroundColor = NSColor.clear.cgColor
+            }
+        }
+    }
+
+    @objc private func onBpmFieldChanged() {
+        if let val = Double(bpmField.stringValue), val >= 60, val <= 180 {
+            targetBpm = val
+            bpmSlider.doubleValue = val
+        }
+    }
+
+    @objc private func onBpmSliderChanged() {
+        targetBpm = round(bpmSlider.doubleValue * 10) / 10.0
+        bpmField.stringValue = String(format: "%.1f", targetBpm)
+    }
+
+    @objc private func onPresetBpmClicked(_ sender: NSButton) {
+        targetBpm = Double(sender.tag)
+        bpmField.stringValue = String(format: "%.1f", targetBpm)
+        bpmSlider.doubleValue = targetBpm
+        onSyncTempoTrainClicked()
+    }
+
+    @objc private func onSyncTempoTrainClicked() {
+        guard targetBpm > 20 && targetBpm < 300 else { return }
+        let interval = 60.0 / targetBpm
+        appendLog("⚡ Firing 5x Tap Tempo Train for \(String(format: "%.1f", targetBpm)) BPM (Interval: \(String(format: "%.1f", interval * 1000)) ms)...")
+
+        DispatchQueue.global(qos: .userInteractive).async {
+            for _ in 1...5 {
+                self.sendSingleTapPulse()
+                usleep(useconds_t(interval * 1_000_000))
+            }
+        }
+    }
+
+    @objc private func onContinuousSyncToggled() {
+        if isAutoSyncRunning {
+            stopContinuousSync()
+        } else {
+            startContinuousSync()
+        }
+    }
+
+    private func startContinuousSync() {
+        guard targetBpm > 20 && targetBpm < 300 else { return }
+        isAutoSyncRunning = true
+        autoSyncButton.title = "⏹ STOP AUTO-SYNC"
+        autoSyncButton.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.4).cgColor
+        autoSyncButton.layer?.borderColor = NSColor.systemRed.cgColor
+        let intervalNs = Int(60.0 / targetBpm * 1_000_000_000)
+
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .userInteractive))
+        timer.schedule(deadline: .now(), repeating: .nanoseconds(intervalNs))
+        timer.setEventHandler { [weak self] in
+            self?.sendSingleTapPulse()
+        }
+        timer.resume()
+        autoSyncTimer = timer
+        appendLog("Started continuous Tap Tempo Sync at \(String(format: "%.1f", targetBpm)) BPM.")
+    }
+
+    private func stopContinuousSync() {
+        isAutoSyncRunning = false
+        autoSyncTimer?.cancel()
+        autoSyncTimer = nil
+        autoSyncButton.title = "🔁 CONTINUOUS SYNC"
+        autoSyncButton.layer?.backgroundColor = NSColor.clear.cgColor
+        autoSyncButton.layer?.borderColor = NSColor.secondaryLabelColor.withAlphaComponent(0.3).cgColor
+        appendLog("Stopped continuous Tap Tempo Sync.")
+    }
+
+    // MARK: - Hardware Actions
     @objc private func onEffectClicked(_ sender: NSButton) {
         let note = UInt8(sender.tag)
         activeEffect = note
 
-        // Update button visual states
         for (n, btn) in effectButtons {
             if n == note {
                 btn.layer?.backgroundColor = NSColor.systemOrange.withAlphaComponent(0.4).cgColor
@@ -437,9 +596,8 @@ class FlexFxWindowController: NSWindowController, NSWindowDelegate {
             }
         }
 
-        // Send hardware Note trigger
         sendNote(note: note, velocity: 127)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+        DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + 0.05) {
             self.sendNote(note: note, velocity: 0)
         }
     }
@@ -447,9 +605,8 @@ class FlexFxWindowController: NSWindowController, NSWindowDelegate {
     @objc private func onMasterFxToggle() {
         isFxOn.toggle()
         updateToggleStyle(fxOnButton, active: isFxOn, activeColor: .systemGreen, title: isFxOn ? "⚡ MASTER FLEXFX ACTIVE" : "⚡ MASTER FLEXFX ON")
-        // Send hardware trigger Note 0
         sendNote(note: RaneProtocol.FX.fxButton, velocity: 127)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+        DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + 0.05) {
             self.sendNote(note: RaneProtocol.FX.fxButton, velocity: 0)
         }
     }
@@ -458,30 +615,27 @@ class FlexFxWindowController: NSWindowController, NSWindowDelegate {
         isFxCueOn.toggle()
         updateToggleStyle(fxCueButton, active: isFxCueOn, activeColor: .systemYellow, title: isFxCueOn ? "🎧 FX CUE ACTIVE" : "🎧 FX HEADPHONE CUE")
         sendNote(note: RaneProtocol.FX.fxCueButton, velocity: 127)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+        DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + 0.05) {
             self.sendNote(note: RaneProtocol.FX.fxCueButton, velocity: 0)
         }
     }
 
     @objc private func onBeatDownClicked() {
         sendNote(note: RaneProtocol.FX.beatDown, velocity: 127)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+        DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + 0.05) {
             self.sendNote(note: RaneProtocol.FX.beatDown, velocity: 0)
         }
     }
 
     @objc private func onBeatUpClicked() {
         sendNote(note: RaneProtocol.FX.beatUp, velocity: 127)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+        DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + 0.05) {
             self.sendNote(note: RaneProtocol.FX.beatUp, velocity: 0)
         }
     }
 
     @objc private func onTapClicked() {
-        sendNote(note: RaneProtocol.FX.tap, velocity: 127)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-            self.sendNote(note: RaneProtocol.FX.tap, velocity: 0)
-        }
+        sendSingleTapPulse()
     }
 
     @objc private func onTimeSliderChanged(_ sender: NSSlider) {
@@ -502,9 +656,8 @@ class FlexFxWindowController: NSWindowController, NSWindowDelegate {
         routingStates[note] = newState
         updateRoutingButtonStyle(sender, active: newState)
 
-        // Send hardware Note trigger
         sendNote(note: note, velocity: 127)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+        DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + 0.05) {
             self.sendNote(note: note, velocity: 0)
         }
     }
@@ -556,7 +709,6 @@ class FlexFxWindowController: NSWindowController, NSWindowDelegate {
             let m = Mirror(reflecting: p.data)
             let b: [UInt8] = m.children.prefix(len).map { $0.value as! UInt8 }
 
-            // Filter heartbeat CC #86
             if !(len == 3 && b[0] == 0xB0 && b[1] == 0x56) {
                 let hex = b.map { String(format: "%02X", $0) }.joined(separator: " ")
                 DispatchQueue.main.async {
@@ -572,7 +724,6 @@ class FlexFxWindowController: NSWindowController, NSWindowDelegate {
         guard !b.isEmpty else { return }
         let status = b[0]
 
-        // Control Change (CC)
         if (status & 0xF0) == 0xB0 && b.count >= 3 {
             let cc = b[1]
             let val = b[2]
@@ -583,18 +734,16 @@ class FlexFxWindowController: NSWindowController, NSWindowDelegate {
                 loopLevelSlider.intValue = Int32(val)
                 loopLevelLabel.stringValue = "\(val)"
             }
-        }
-        // Note On (Channel 1: 0x90 or Channel 2: 0x91)
-        else if (status & 0xF0) == 0x90 && b.count >= 3 {
+        } else if (status & 0xF0) == 0x90 && b.count >= 3 {
             let ch = status & 0x0F
             let note = b[1]
             let vel = b[2]
 
-            if ch == 1 { // Channel 2 (Mix Functions feedback from dump)
-                if note == 0x01 { // FX On
+            if ch == 1 {
+                if note == 0x01 {
                     isFxOn = (vel > 0)
                     updateToggleStyle(fxOnButton, active: isFxOn, activeColor: .systemGreen, title: isFxOn ? "⚡ MASTER FLEXFX ACTIVE" : "⚡ MASTER FLEXFX ON")
-                } else if note == 0x03 { // FX Cue
+                } else if note == 0x03 {
                     isFxCueOn = (vel > 0)
                     updateToggleStyle(fxCueButton, active: isFxCueOn, activeColor: .systemYellow, title: isFxCueOn ? "🎧 FX CUE ACTIVE" : "🎧 FX HEADPHONE CUE")
                 } else if let btn = routingButtons[note] {
