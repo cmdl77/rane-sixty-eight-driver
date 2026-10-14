@@ -675,17 +675,22 @@ class RaneFlexFxService {
             }
         }
 
-        // 2. Fallback for Sixty-Eight default hardware LEDs if not overridden
-        let fxMap: [(FlexFxType, UInt8)] = [
-            (.filter, 12),
-            (.flanger, 11),
-            (.phaser, 10),
-            (.echo, 13),
-            (.dubDelay, 9),
-            (.reverb, 8)
+        // 2. Fallback for Sixty-Eight default hardware LEDs if not overridden by any Out-Mapping
+        let fxMap: [(FlexFxType, FlexFxMidiTarget, UInt8)] = [
+            (.filter,   .fxFilter,   12),
+            (.flanger,  .fxFlanger,  11),
+            (.phaser,   .fxPhaser,   10),
+            (.echo,     .fxEcho,     13),
+            (.dubDelay, .fxDubDelay,  9),
+            (.reverb,   .fxReverb,    8)
         ]
-        for (fx, note) in fxMap {
+        // If the user has mapped any custom Out-LEDs for effects, only send fallback for notes not touched by handledNotes
+        for (fx, target, note) in fxMap {
             if !handledNotes.contains(note) {
+                // If user already mapped this specific FX to another LED, don't light up the factory LED either
+                if learn.outMappingFor(target: target) != nil {
+                    continue
+                }
                 if fx == currentFx {
                     midi.sendNoteOn(note: note, velocity: 127, channel: 0)
                 } else {
@@ -693,7 +698,7 @@ class RaneFlexFxService {
                 }
             }
         }
-        if !handledNotes.contains(0) {
+        if !handledNotes.contains(0) && learn.outMappingFor(target: .fxToggle) == nil {
             if isFxOn {
                 midi.sendNoteOn(note: 0, velocity: 127, channel: 0)
             } else {
