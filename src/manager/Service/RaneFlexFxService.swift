@@ -6,24 +6,63 @@ import CoreAudio
 import AudioToolbox
 import CoreMIDI
 
-enum FlexFxType: Int, CaseIterable {
-    case filter  = 0
-    case flanger = 1
-    case phaser  = 2
-    case echo    = 3
-    case robot   = 4
-    case reverb  = 5
+public enum FlexFxType: Int, CaseIterable, Codable {
+    case filter   = 0
+    case flanger  = 1
+    case phaser   = 2
+    case echo     = 3
+    case dubDelay = 4
+    case reverb   = 5
 
-    var displayName: String {
+    public var displayName: String {
         switch self {
-        case .filter:  return "FILTER"
-        case .flanger: return "FLANGER"
-        case .phaser:  return "PHASER"
-        case .echo:    return "ECHO"
-        case .robot:   return "ROBOT"
-        case .reverb:  return "REVERB"
+        case .filter:   return "FILTER"
+        case .flanger:  return "FLANGER"
+        case .phaser:   return "PHASER"
+        case .echo:     return "ECHO"
+        case .dubDelay: return "DUB DELAY"
+        case .reverb:   return "REVERB"
         }
     }
+}
+
+public struct FxParameters: Codable {
+    // FILTER
+    public var filterCutoff: Double = 1200.0   // 100 - 10000 Hz
+    public var filterResonance: Double = 2.0    // 0.5 - 8.0 Q
+    public var filterLfoRate: Double = 0.5      // 0.1 - 6.0 Hz
+    public var filterLfoDepth: Double = 0.4     // 0.0 - 1.0
+
+    // FLANGER
+    public var flangerRate: Double = 0.4        // 0.05 - 4.0 Hz
+    public var flangerDepth: Double = 0.7       // 0.0 - 1.0
+    public var flangerFeedback: Double = 0.6    // 0.0 - 0.95
+    public var flangerManual: Double = 3.0      // 0.5 - 8.0 ms
+
+    // PHASER
+    public var phaserRate: Double = 0.35        // 0.05 - 4.0 Hz
+    public var phaserDepth: Double = 0.75       // 0.0 - 1.0
+    public var phaserFeedback: Double = 0.5     // 0.0 - 0.9
+    public var phaserBaseFreq: Double = 800.0   // 200 - 3000 Hz
+
+    // ECHO
+    public var echoHighCut: Double = 5000.0     // 1000 - 18000 Hz
+    public var echoPingPong: Double = 0.5       // 0.0 - 1.0
+    public var echoSpread: Double = 20.0        // 0 - 40 ms
+
+    // DUB DELAY (Space Echo)
+    public var dubSaturation: Double = 0.6      // 0.0 - 1.0 (Tape Saturation)
+    public var dubHighCut: Double = 2800.0      // 500 - 8000 Hz (Dark Tape Tone)
+    public var dubFlutter: Double = 0.35        // 0.0 - 1.0 (Tape Wow & Flutter)
+    public var dubResonance: Double = 0.7       // 0.0 - 1.0 (Self-Oscillation Feedback)
+
+    // REVERB
+    public var reverbRoomSize: Double = 0.75    // 0.1 - 1.0
+    public var reverbDamping: Double = 0.4      // 0.0 - 1.0
+    public var reverbPreDelay: Double = 25.0    // 0 - 100 ms
+    public var reverbWidth: Double = 0.85       // 0.0 - 1.0
+
+    public init() {}
 }
 
 enum BeatDivision: Int, CaseIterable {
@@ -215,8 +254,41 @@ class RaneFlexFxService {
     private var svfLowR: Float = 0
     private var svfBandR: Float = 0
 
-    // Flanger LFO Phase
+    // Flanger & Phaser LFO Phases & Filters
     private var lfoPhase: Double = 0.0
+    private var filterLfoPhase: Double = 0.0
+    private var phaserLfoPhase: Double = 0.0
+    private var phaserAllpassL: [Float] = [0.0, 0.0, 0.0, 0.0]
+    private var phaserAllpassR: [Float] = [0.0, 0.0, 0.0, 0.0]
+
+    // Echo & Dub Delay Filter & Tape Wow/Flutter States
+    private var echoFilterL: Float = 0.0
+    private var echoFilterR: Float = 0.0
+    private var dubFilterL: Float = 0.0
+    private var dubFilterR: Float = 0.0
+    private var dubFlutterPhase: Double = 0.0
+
+    // FX Modulation Parameters
+    private let fxParamsKey = "RaneSixtyEight_FxParameters_v1"
+    public var fxParams = FxParameters() {
+        didSet {
+            saveFxParams()
+        }
+    }
+
+    private func loadFxParams() {
+        guard let data = UserDefaults.standard.data(forKey: fxParamsKey),
+              let loaded = try? JSONDecoder().decode(FxParameters.self, from: data) else {
+            return
+        }
+        self.fxParams = loaded
+    }
+
+    private func saveFxParams() {
+        if let data = try? JSONEncoder().encode(fxParams) {
+            UserDefaults.standard.set(data, forKey: fxParamsKey)
+        }
+    }
 
     init() {
         // Allocate RT audio scratch buffers
@@ -236,6 +308,7 @@ class RaneFlexFxService {
         delayBufferR.initialize(repeating: 0.0, count: maxDelaySamples)
 
         initDspBuffers()
+        loadFxParams()
         setupNativeAbletonLink()
         startAudioEngine()
         registerDeviceListener()
@@ -549,7 +622,7 @@ class RaneFlexFxService {
             (.flanger, 11),
             (.phaser, 10),
             (.echo, 13),
-            (.robot, 9),
+            (.dubDelay, 9),
             (.reverb, 8)
         ]
         for (fx, note) in fxMap {
@@ -575,11 +648,15 @@ class RaneFlexFxService {
     }
 
     func setBpm(_ newBpm: Double) {
-        let clamped = max(60.0, min(220.0, newBpm))
+        let clamped = max(40.0, min(240.0, newBpm))
         bpm = clamped
         if isModuleEnabled && isLinkEnabled {
             rane_link_set_tempo(clamped)
         }
+    }
+
+    func setManualBpm(_ newBpm: Double) {
+        setBpm(newBpm)
     }
 
     func adjustBpm(delta: Double) {
@@ -668,42 +745,93 @@ class RaneFlexFxService {
 
             switch currentEffect {
             case .echo:
-                // DaisySP DelayLine Ping-Pong Stereo Beat Echo
+                // DaisySP DelayLine Ping-Pong Stereo Beat Echo with High-Cut Damping & Spread
                 let readIdx = (delayHead - delaySamples + maxDelaySamples) % maxDelaySamples
                 let dL = delayBufferL[readIdx]
                 let dR = delayBufferR[readIdx]
 
-                delayBufferL[delayHead] = fxInL + (dR * fb)
-                delayBufferR[delayHead] = fxInR + (dL * fb)
+                let echoCut = Float(fxParams.echoHighCut)
+                let alpha = min(0.95, max(0.05, (2.0 * .pi * echoCut) / Float(sampleRate)))
+                echoFilterL += alpha * (dL - echoFilterL)
+                echoFilterR += alpha * (dR - echoFilterR)
+
+                let pp = Float(fxParams.echoPingPong)
+                let fbL = (echoFilterR * pp) + (echoFilterL * (1.0 - pp))
+                let fbR = (echoFilterL * pp) + (echoFilterR * (1.0 - pp))
+
+                delayBufferL[delayHead] = fxInL + (fbL * fb)
+                delayBufferR[delayHead] = fxInR + (fbR * fb)
                 delayHead = (delayHead + 1) % maxDelaySamples
 
                 yL = dL
                 yR = dR
 
+            case .dubDelay:
+                // Space Echo Tape Dub Delay with Analog Saturation, Resonant Tone & Wow/Flutter
+                let flutterLfo = Float(sin(dubFlutterPhase * 2.0 * .pi))
+                dubFlutterPhase += (0.8 + fxParams.dubFlutter * 2.5) / sampleRate
+                if dubFlutterPhase >= 1.0 { dubFlutterPhase -= 1.0 }
+
+                // Modulate delay time slightly for tape wow/flutter (±2 ms)
+                let flutterOffset = Int(flutterLfo * Float(fxParams.dubFlutter * 80.0))
+                let readIdx = (delayHead - delaySamples + flutterOffset + maxDelaySamples) % maxDelaySamples
+                let dL = delayBufferL[readIdx]
+                let dR = delayBufferR[readIdx]
+
+                // Low-pass tone filter on feedback (1-pole RC filter)
+                let toneFreq = Float(fxParams.dubHighCut)
+                let alpha = min(0.95, max(0.05, (2.0 * .pi * toneFreq) / Float(sampleRate)))
+                dubFilterL += alpha * (dL - dubFilterL)
+                dubFilterR += alpha * (dR - dubFilterR)
+
+                // Tape drive / saturation on feedback loop
+                let drive = Float(1.0 + fxParams.dubSaturation * 2.5)
+                let satL = tanh(dubFilterL * drive) / drive
+                let satR = tanh(dubFilterR * drive) / drive
+
+                let dubFb = Float(min(0.98, depth * (0.65 + fxParams.dubResonance * 0.33)))
+
+                // Cross feedback with vintage tape character
+                delayBufferL[delayHead] = fxInL + (satR * dubFb * 0.75) + (satL * dubFb * 0.25)
+                delayBufferR[delayHead] = fxInR + (satL * dubFb * 0.75) + (satR * dubFb * 0.25)
+                delayHead = (delayHead + 1) % maxDelaySamples
+
+                yL = satL
+                yR = satR
+
             case .reverb:
-                // DaisySP / Freeverb Stereo Reverb Matrix
-                let inputMono = (fxInL + fxInR) * 0.015
+                // Freeverb Stereo Reverb Matrix with Room Size, Damping & Stereo Width
+                let inputMono = (fxInL + fxInR) * 0.018
                 var accL: Float = 0.0
                 var accR: Float = 0.0
-                let room = 0.70 + (fb * 0.28)
+                let room = Float(0.50 + fxParams.reverbRoomSize * 0.45)
+                let damp = Float(fxParams.reverbDamping * 0.4)
 
                 for c in 0..<8 {
                     let pos = reverbCombPos[c]
                     let cL = reverbCombL[c][pos]
                     let cR = reverbCombR[c][pos]
-                    reverbCombL[c][pos] = inputMono + (cL * room)
-                    reverbCombR[c][pos] = inputMono + (cR * room)
+                    reverbCombL[c][pos] = inputMono + (cL * room * (1.0 - damp))
+                    reverbCombR[c][pos] = inputMono + (cR * room * (1.0 - damp))
                     reverbCombPos[c] = (pos + 1) % reverbCombL[c].count
                     accL += cL
                     accR += cR
                 }
-                yL = accL
-                yR = accR
+                let width = Float(fxParams.reverbWidth)
+                yL = accL * (0.5 + width * 0.5) + accR * (0.5 - width * 0.5)
+                yR = accR * (0.5 + width * 0.5) + accL * (0.5 - width * 0.5)
 
             case .filter:
-                // DaisySP SVF (State Variable Filter) Resonant Lowpass/Bandpass
-                let cutoff = min(0.45, Float(0.02 + pow(depth, 2.0) * 0.40))
-                let q = Float(0.5)
+                // Resonant State Variable Filter (SVF) with LFO Modulation
+                let lfoFreq = fxParams.filterLfoRate
+                filterLfoPhase += lfoFreq / sampleRate
+                if filterLfoPhase >= 1.0 { filterLfoPhase -= 1.0 }
+                let lfoMod = Float((sin(filterLfoPhase * 2.0 * .pi) + 1.0) * 0.5 * fxParams.filterLfoDepth)
+
+                let baseCutoff = Float(fxParams.filterCutoff) / Float(sampleRate) * 2.0
+                let cutoff = min(0.48, max(0.01, baseCutoff * (Float(0.3 + depth * 1.4)) + lfoMod * 0.15))
+                let q = Float(max(0.2, 1.0 / fxParams.filterResonance))
+
                 svfLowL += cutoff * svfBandL
                 let highL = fxInL - svfLowL - q * svfBandL
                 svfBandL += cutoff * highL
@@ -719,29 +847,48 @@ class RaneFlexFxService {
                 yL = svfLowL
                 yR = svfLowR
 
-            case .flanger, .phaser:
-                // LFO Modulated Comb Filter
-                let lfoFreq = (bpm / 60.0) / (currentDivision.multiplier * 4.0)
-                lfoPhase += lfoFreq / sampleRate
+            case .flanger:
+                // Stereo BBD Flanger
+                let flangerLfoFreq = fxParams.flangerRate
+                lfoPhase += flangerLfoFreq / sampleRate
                 if lfoPhase >= 1.0 { lfoPhase -= 1.0 }
-                let mod = (sin(lfoPhase * 2.0 * .pi) + 1.0) * 0.5
-                let modSamples = Int(24.0 + mod * 320.0)
+                let mod = Float((sin(lfoPhase * 2.0 * .pi) + 1.0) * 0.5 * fxParams.flangerDepth)
+                let baseSamples = Float(fxParams.flangerManual * 0.001 * sampleRate)
+                let modSamples = Int(baseSamples + mod * 280.0)
                 let readIdx = (delayHead - modSamples + maxDelaySamples) % maxDelaySamples
 
                 let dL = delayBufferL[readIdx]
                 let dR = delayBufferR[readIdx]
-                delayBufferL[delayHead] = fxInL + dL * fb * 0.7
-                delayBufferR[delayHead] = fxInR + dR * fb * 0.7
+                let flangerFb = Float(fxParams.flangerFeedback * 0.9)
+                delayBufferL[delayHead] = fxInL + dL * flangerFb
+                delayBufferR[delayHead] = fxInR + dR * flangerFb
                 delayHead = (delayHead + 1) % maxDelaySamples
 
                 yL = dL
                 yR = dR
 
-            case .robot:
-                // DaisySP Decimator / Bitcrusher Robotizer
-                let steps = Float(max(2.0, 32.0 * (1.0 - depth)))
-                yL = round(fxInL * steps) / steps
-                yR = round(fxInR * steps) / steps
+            case .phaser:
+                // 4-Stage All-pass Phaser
+                let phaserLfoFreq = fxParams.phaserRate
+                phaserLfoPhase += phaserLfoFreq / sampleRate
+                if phaserLfoPhase >= 1.0 { phaserLfoPhase -= 1.0 }
+                let pMod = Float((sin(phaserLfoPhase * 2.0 * .pi) + 1.0) * 0.5 * fxParams.phaserDepth)
+                let wp = min(0.95, max(0.05, Float(fxParams.phaserBaseFreq) / Float(sampleRate) * 2.0 + pMod * 0.3))
+                let apCoef = (1.0 - wp) / (1.0 + wp)
+
+                var sL = fxInL + phaserAllpassL[3] * Float(fxParams.phaserFeedback * 0.8)
+                var sR = fxInR + phaserAllpassR[3] * Float(fxParams.phaserFeedback * 0.8)
+                for st in 0..<4 {
+                    let nextL = apCoef * sL + phaserAllpassL[st]
+                    phaserAllpassL[st] = sL - apCoef * nextL
+                    sL = nextL
+
+                    let nextR = apCoef * sR + phaserAllpassR[st]
+                    phaserAllpassR[st] = sR - apCoef * nextR
+                    sR = nextR
+                }
+                yL = sL
+                yR = sR
             }
 
             outL[i] = (xL * dry) + (yL * wet)

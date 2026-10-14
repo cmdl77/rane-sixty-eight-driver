@@ -26,7 +26,8 @@ extension MainWindowController {
         var dryWetBadge: NSTextField!
         var depthSlider: NSSlider!
         var depthBadge: NSTextField!
-        var routingBadge: NSTextField!
+        var tempoSlider: NSSlider!
+        var tempoBadge: NSTextField!
     }
 
     private static var flexFxRefs = FlexFxUiReferences()
@@ -279,7 +280,7 @@ extension MainWindowController {
         row2.spacing = 10
 
         let effectsRow1: [FlexFxType] = [.filter, .flanger, .phaser]
-        let effectsRow2: [FlexFxType] = [.echo, .robot, .reverb]
+        let effectsRow2: [FlexFxType] = [.echo, .dubDelay, .reverb]
 
         for fx in effectsRow1 {
             let btn = createTactileFxButton(type: fx)
@@ -299,8 +300,8 @@ extension MainWindowController {
     }
 
     private func createTactileFxButton(type: FlexFxType) -> NSButton {
-        // Reine, zentrierte Schrift ohne Icons genau wie auf den echten Tasten des Sixty-Eight
-        let btn = NSButton(title: type.displayName, target: self, action: #selector(onFxButtonClicked(_:)))
+        // Reine, zentrierte Schrift genau wie auf den Tasten des Sixty-Eight
+        let btn = FxEffectButton(title: type.displayName, target: self, action: #selector(onFxButtonClicked(_:)))
         btn.bezelStyle = .regularSquare
         btn.isBordered = false
         btn.wantsLayer = true
@@ -312,11 +313,25 @@ extension MainWindowController {
         btn.alignment = .center
         btn.contentTintColor = NSColor(white: 0.75, alpha: 1.0)
         btn.tag = type.rawValue
+        btn.toolTip = Localization.tr(en: "Left click: Select • Right click: Parameters & Modulation", de: "Linksklick: Auswählen • Rechtsklick: Parameter & Modulation")
         btn.translatesAutoresizingMaskIntoConstraints = false
         btn.heightAnchor.constraint(equalToConstant: 34).isActive = true
 
+        btn.onRightClick = { [weak self, weak btn] in
+            guard let self = self, let btn = btn else { return }
+            self.showEffectDetailPopover(for: type, relativeTo: btn)
+        }
+
         Self.flexFxRefs.fxButtons[type] = btn
         return btn
+    }
+
+    func showEffectDetailPopover(for fx: FlexFxType, relativeTo button: NSButton) {
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = true
+        popover.contentViewController = FxDetailPopoverViewController(fxType: fx)
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
     }
 
     // MARK: - Beat Division & Tap Row
@@ -418,28 +433,18 @@ extension MainWindowController {
         row1.addArrangedSubview(ppBtn)
         Self.flexFxRefs.prePostButton = ppBtn
 
-        // Routing Badge
-        let routingBadge = NSTextField(labelWithString: "  ● Hardware: Schalter auf USB INSERT (Ch 9/10 Loop)  ")
-        routingBadge.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
-        routingBadge.textColor = NSColor.systemTeal
-        routingBadge.wantsLayer = true
-        routingBadge.layer?.cornerRadius = 4
-        routingBadge.layer?.backgroundColor = NSColor.systemTeal.withAlphaComponent(0.15).cgColor
-        row1.addArrangedSubview(routingBadge)
-        Self.flexFxRefs.routingBadge = routingBadge
-
         main.addArrangedSubview(row1)
 
-        // Sliders: Dry/Wet & Depth/Feedback
+        // Sliders: Dry/Wet & Depth/Feedback & Tempo / BPM
         let slidersRow = NSStackView()
         slidersRow.orientation = .horizontal
         slidersRow.alignment = .centerY
-        slidersRow.spacing = 20
+        slidersRow.spacing = 16
 
         // Dry/Wet Slider & Clickable Learn Label
         let dwStack = NSStackView()
         dwStack.orientation = .horizontal
-        dwStack.spacing = 8
+        dwStack.spacing = 6
         dwStack.alignment = .centerY
         let dwLabel = NSTextField(labelWithString: "Dry / Wet:")
         dwLabel.font = NSFont.systemFont(ofSize: 11, weight: .bold)
@@ -447,7 +452,7 @@ extension MainWindowController {
         let dwSlider = NSSlider(value: RaneFlexFxService.shared.dryWet * 100.0, minValue: 0, maxValue: 100, target: self, action: #selector(onDryWetChanged(_:)))
         dwSlider.isContinuous = true
         dwSlider.translatesAutoresizingMaskIntoConstraints = false
-        dwSlider.widthAnchor.constraint(equalToConstant: 130).isActive = true
+        dwSlider.widthAnchor.constraint(equalToConstant: 105).isActive = true
         let dwBadge = createValueBadge(text: "\(Int(RaneFlexFxService.shared.dryWet * 100.0))%")
         dwStack.addArrangedSubview(dwLabel)
         dwStack.addArrangedSubview(dwSlider)
@@ -459,15 +464,15 @@ extension MainWindowController {
         // Depth / Feedback Slider
         let dpStack = NSStackView()
         dpStack.orientation = .horizontal
-        dpStack.spacing = 8
+        dpStack.spacing = 6
         dpStack.alignment = .centerY
-        let dpLabel = NSTextField(labelWithString: Localization.tr(en: "Feedback / Depth:", de: "Feedback / Tiefe:"))
+        let dpLabel = NSTextField(labelWithString: Localization.tr(en: "Feedback:", de: "Feedback:"))
         dpLabel.font = NSFont.systemFont(ofSize: 11, weight: .bold)
         dpLabel.textColor = NSColor(white: 0.90, alpha: 1.0)
         let dpSlider = NSSlider(value: RaneFlexFxService.shared.depth * 100.0, minValue: 0, maxValue: 100, target: self, action: #selector(onDepthChanged(_:)))
         dpSlider.isContinuous = true
         dpSlider.translatesAutoresizingMaskIntoConstraints = false
-        dpSlider.widthAnchor.constraint(equalToConstant: 130).isActive = true
+        dpSlider.widthAnchor.constraint(equalToConstant: 105).isActive = true
         let dpBadge = createValueBadge(text: "\(Int(RaneFlexFxService.shared.depth * 100.0))%")
         dpStack.addArrangedSubview(dpLabel)
         dpStack.addArrangedSubview(dpSlider)
@@ -475,6 +480,26 @@ extension MainWindowController {
         Self.flexFxRefs.depthSlider = dpSlider
         Self.flexFxRefs.depthBadge = dpBadge
         slidersRow.addArrangedSubview(dpStack)
+
+        // Tempo / BPM Poti Slider (Mappable)
+        let tpStack = NSStackView()
+        tpStack.orientation = .horizontal
+        tpStack.spacing = 6
+        tpStack.alignment = .centerY
+        let tpLabel = NSTextField(labelWithString: "Tempo:")
+        tpLabel.font = NSFont.systemFont(ofSize: 11, weight: .bold)
+        tpLabel.textColor = NSColor(white: 0.90, alpha: 1.0)
+        let tpSlider = NSSlider(value: RaneFlexFxService.shared.bpm, minValue: 60.0, maxValue: 200.0, target: self, action: #selector(onTempoSliderChanged(_:)))
+        tpSlider.isContinuous = true
+        tpSlider.translatesAutoresizingMaskIntoConstraints = false
+        tpSlider.widthAnchor.constraint(equalToConstant: 105).isActive = true
+        let tpBadge = createValueBadge(text: String(format: "%.1f", RaneFlexFxService.shared.bpm))
+        tpStack.addArrangedSubview(tpLabel)
+        tpStack.addArrangedSubview(tpSlider)
+        tpStack.addArrangedSubview(tpBadge)
+        Self.flexFxRefs.tempoSlider = tpSlider
+        Self.flexFxRefs.tempoBadge = tpBadge
+        slidersRow.addArrangedSubview(tpStack)
 
         main.addArrangedSubview(slidersRow)
 
@@ -629,24 +654,9 @@ extension MainWindowController {
             nextBtn.layer?.backgroundColor = NSColor(white: 0.22, alpha: 0.7).cgColor
         }
 
-        // 9. CoreAudio Streaming Routing Badge
-        if let rBadge = Self.flexFxRefs.routingBadge {
-            if s.isAudioStreaming {
-                rBadge.stringValue = Localization.tr(
-                    en: "  ● Audio-Loop AKTIV: Send Ch 9/10 → Return Ch 9/10  ",
-                    de: "  ● Audio-Loop AKTIV: Send Ch 9/10 → Return Ch 9/10  "
-                )
-                rBadge.textColor = NSColor.systemTeal
-                rBadge.layer?.backgroundColor = NSColor.systemTeal.withAlphaComponent(0.18).cgColor
-            } else {
-                rBadge.stringValue = Localization.tr(
-                    en: "  ○ CoreAudio: Warte auf Sixty-Eight Gerät...  ",
-                    de: "  ○ CoreAudio: Warte auf Sixty-Eight Gerät...  "
-                )
-                rBadge.textColor = NSColor.systemOrange
-                rBadge.layer?.backgroundColor = NSColor.systemOrange.withAlphaComponent(0.18).cgColor
-            }
-        }
+        // 9. Tempo Slider & Badge
+        Self.flexFxRefs.tempoSlider?.doubleValue = s.bpm
+        Self.flexFxRefs.tempoBadge?.stringValue = String(format: "%.1f", s.bpm)
 
         updateMiniHudUI()
     }
@@ -755,5 +765,12 @@ extension MainWindowController {
         let modeStr = RaneFlexFxService.shared.isPreFader ? "PRE-FADER (Bypass)" : "POST-FADER (Reverb/Delay Tail)"
         appendMidiLog("FlexFX Engine: Signal-Routing -> [\(modeStr)]")
         updateFlexFxUi()
+    }
+
+    @objc func onTempoSliderChanged(_ sender: NSSlider) {
+        guard RaneFlexFxService.shared.isModuleEnabled else { return }
+        let rounded = round(sender.doubleValue * 10.0) / 10.0
+        RaneFlexFxService.shared.setManualBpm(rounded)
+        Self.flexFxRefs.tempoBadge?.stringValue = String(format: "%.1f", rounded)
     }
 }

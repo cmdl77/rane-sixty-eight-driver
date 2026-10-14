@@ -9,13 +9,14 @@ public enum FlexFxMidiTarget: String, CaseIterable, Codable {
     case fxFlanger   = "FX_FLANGER"
     case fxPhaser    = "FX_PHASER"
     case fxEcho      = "FX_ECHO"
-    case fxRobot     = "FX_ROBOT"
+    case fxDubDelay  = "FX_DUB_DELAY"
     case fxReverb    = "FX_REVERB"
     case fxToggle    = "FX_TOGGLE"      // FlexFX On/Off
     case prevBeat    = "PREV_BEAT"      // Beat division <
     case nextBeat    = "NEXT_BEAT"      // Beat division >
     case dryWet      = "DRY_WET"        // Dry/Wet knob or slider
     case depth       = "DEPTH"          // Depth knob or slider
+    case tempo       = "TEMPO"          // Tempo (BPM) Poti
     case prePost     = "PRE_POST"       // Pre/Post Fader toggle
     case modulePower = "MODULE_POWER"   // Module master power
 
@@ -25,15 +26,49 @@ public enum FlexFxMidiTarget: String, CaseIterable, Codable {
         case .fxFlanger:    return "Flanger"
         case .fxPhaser:     return "Phaser"
         case .fxEcho:       return "Echo"
-        case .fxRobot:      return "Robot"
+        case .fxDubDelay:   return "Dub Delay"
         case .fxReverb:     return "Reverb"
         case .fxToggle:     return "FlexFX On/Off"
         case .prevBeat:     return "Beat <"
         case .nextBeat:     return "Beat >"
         case .dryWet:       return "Dry / Wet"
         case .depth:        return "Depth (Feedback)"
+        case .tempo:        return "Tempo (BPM)"
         case .prePost:      return "Pre / Post"
         case .modulePower:  return "Modul Power"
+        }
+    }
+
+    public var defaultInteractionType: ControlInteractionType {
+        switch self {
+        case .dryWet, .depth, .tempo:
+            return .faderKnob
+        default:
+            return .button
+        }
+    }
+
+    public init?(rawValue: String) {
+        if rawValue == "FX_ROBOT" {
+            self = .fxDubDelay
+            return
+        }
+        switch rawValue {
+        case "FX_FILTER": self = .fxFilter
+        case "FX_FLANGER": self = .fxFlanger
+        case "FX_PHASER": self = .fxPhaser
+        case "FX_ECHO": self = .fxEcho
+        case "FX_DUB_DELAY": self = .fxDubDelay
+        case "FX_REVERB": self = .fxReverb
+        case "FX_TOGGLE": self = .fxToggle
+        case "PREV_BEAT": self = .prevBeat
+        case "NEXT_BEAT": self = .nextBeat
+        case "DRY_WET": self = .dryWet
+        case "DEPTH": self = .depth
+        case "TEMPO": self = .tempo
+        case "PRE_POST": self = .prePost
+        case "MODULE_POWER": self = .modulePower
+        default: return nil
         }
     }
 }
@@ -229,7 +264,12 @@ public class RaneMidiLearnService {
             var loaded: [FlexFxMidiTarget: MidiMapping] = [:]
             for (key, val) in decoded {
                 if let target = FlexFxMidiTarget(rawValue: key) {
-                    loaded[target] = val
+                    var mapping = val
+                    // Sanitize: button targets should default to .button interactionType
+                    if target.defaultInteractionType == .button && mapping.interactionType == .faderKnob {
+                        mapping.interactionType = .button
+                    }
+                    loaded[target] = mapping
                 }
             }
             self.mappings = loaded
@@ -368,7 +408,7 @@ public class RaneMidiLearnService {
         if isLearnModeActive {
             if let target = selectedTarget {
                 let existing = mappings[target]
-                let iType = existing?.interactionType ?? ((target == .dryWet || target == .depth) ? .faderKnob : (msgType == .note ? .button : .faderKnob))
+                let iType = existing?.interactionType ?? target.defaultInteractionType
                 let bMode = existing?.buttonMode ?? .toggle
                 let newMapping = MidiMapping(type: msgType, number: d1, channel: channel, interactionType: iType, buttonMode: bMode)
                 // Remove any existing target that used this exact message to avoid conflicts
@@ -444,11 +484,11 @@ public class RaneMidiLearnService {
             } else {
                 flex.currentEffect = .echo
             }
-        case .fxRobot:
+        case .fxDubDelay:
             if interactionType == .button {
-                if isPressed { flex.currentEffect = .robot }
+                if isPressed { flex.currentEffect = .dubDelay }
             } else {
-                flex.currentEffect = .robot
+                flex.currentEffect = .dubDelay
             }
         case .fxReverb:
             if interactionType == .button {
@@ -486,6 +526,15 @@ public class RaneMidiLearnService {
                 flex.depth = max(0.0, min(1.0, flex.depth + Double(step)))
             } else {
                 flex.depth = Double(normValue)
+            }
+        case .tempo:
+            if interactionType == .encoder {
+                let step = isRelativeIncrement ? 0.5 : (isRelativeDecrement ? -0.5 : (normValue > 0.5 ? 0.5 : -0.5))
+                flex.setManualBpm(flex.bpm + step)
+            } else {
+                // Absolute mapping: 60 BPM (at 0) to 200 BPM (at 127)
+                let targetBpm = 60.0 + Double(normValue) * 140.0
+                flex.setManualBpm(round(targetBpm * 10.0) / 10.0)
             }
         case .prePost:
             if interactionType == .button {

@@ -47,7 +47,7 @@ extension MainWindowController {
         LedTestItem(name: "FlexFX Flanger", note: 11, color: "Gelb", channel: 0, isMixerControl: true),
         LedTestItem(name: "FlexFX Phaser", note: 10, color: "Gelb", channel: 0, isMixerControl: true),
         LedTestItem(name: "FlexFX Echo", note: 13, color: "Gelb", channel: 0, isMixerControl: true),
-        LedTestItem(name: "FlexFX Robot", note: 9, color: "Gelb", channel: 0, isMixerControl: true),
+        LedTestItem(name: "FlexFX Dub Delay", note: 9, color: "Gelb", channel: 0, isMixerControl: true),
         LedTestItem(name: "FlexFX Reverb", note: 8, color: "Gelb", channel: 0, isMixerControl: true),
         LedTestItem(name: "Beat <", note: 14, color: "Gelb", channel: 0, isMixerControl: true),
         LedTestItem(name: "Beat >", note: 15, color: "Gelb", channel: 0, isMixerControl: true),

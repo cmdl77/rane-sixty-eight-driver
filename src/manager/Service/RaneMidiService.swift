@@ -134,7 +134,6 @@ class RaneMidiService {
 
     func connectEndpoints() {
         var foundDest: MIDIEndpointRef = 0
-        var foundSrc: MIDIEndpointRef = 0
 
         let numDests = MIDIGetNumberOfDestinations()
         for i in 0..<numDests {
@@ -151,22 +150,9 @@ class RaneMidiService {
             }
         }
 
-        let numSrcs = MIDIGetNumberOfSources()
-        for i in 0..<numSrcs {
-            let s = MIDIGetSource(i)
-            var name: Unmanaged<CFString>?
-            MIDIObjectGetStringProperty(s, kMIDIPropertyName, &name)
-            if let str = name?.takeRetainedValue() as String? {
-                if str.contains("Sixty-Eight") || str.contains("Rane") {
-                    if isEndpointOnline(s) {
-                        foundSrc = s
-                        break
-                    }
-                }
-            }
-        }
-
         destEndpoint = foundDest
+
+        let numSrcs = MIDIGetNumberOfSources()
 
         // Connect ALL online MIDI sources (Rane Sixty-Eight, external controllers, keyboards, Xone, etc.)
         // so that MIDI Learn can learn from any controller seamlessly!

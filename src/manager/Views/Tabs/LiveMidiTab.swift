@@ -22,12 +22,13 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
             .fxFlanger,
             .fxPhaser,
             .fxEcho,
-            .fxRobot,
+            .fxDubDelay,
             .fxReverb,
             .prevBeat,
             .nextBeat,
             .dryWet,
             .depth,
+            .tempo,
             .prePost
         ]
     }
@@ -497,13 +498,13 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
             let types = ControlInteractionType.allCases
             typePopup.addItems(withTitles: types.map { $0.rawValue })
 
-            let currentType = mapping?.interactionType ?? ((target == .dryWet || target == .depth) ? .faderKnob : .button)
+            let currentType = mapping?.interactionType ?? target.defaultInteractionType
             if let idx = types.firstIndex(of: currentType) {
                 typePopup.selectItem(at: idx)
             }
             return typePopup
         } else if cellId == "Option" {
-            let currentType = mapping?.interactionType ?? ((target == .dryWet || target == .depth) ? .faderKnob : .button)
+            let currentType = mapping?.interactionType ?? target.defaultInteractionType
             if currentType == .button {
                 let optPopup = NSPopUpButton(frame: .zero, pullsDown: false)
                 optPopup.controlSize = .small
@@ -692,7 +693,7 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
         let existing = learn.mappingFor(target: target)
         let mType = existing?.type ?? .cc
         let ch = existing?.channel ?? 255
-        let iType = existing?.interactionType ?? ((target == .dryWet || target == .depth) ? .faderKnob : .button)
+        let iType = existing?.interactionType ?? target.defaultInteractionType
 
         let updated = MidiMapping(type: mType, number: num, channel: ch, interactionType: iType, buttonMode: existing?.buttonMode ?? .toggle)
         learn.setMapping(for: target, mapping: updated)
@@ -711,7 +712,7 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
         let existing = learn.mappingFor(target: target)
         let mType = existing?.type ?? .cc
         let num = existing?.number ?? 0
-        let iType = existing?.interactionType ?? ((target == .dryWet || target == .depth) ? .faderKnob : .button)
+        let iType = existing?.interactionType ?? target.defaultInteractionType
         let bMode = existing?.buttonMode ?? .toggle
 
         let updated = MidiMapping(type: mType, number: num, channel: channel, interactionType: iType, buttonMode: bMode)
