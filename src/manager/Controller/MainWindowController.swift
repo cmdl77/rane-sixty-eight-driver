@@ -717,7 +717,12 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         MiniHudRefs.dryWetLabel?.stringValue = "W: \(Int(flex.dryWet * 100))%"
         MiniHudRefs.depthLabel?.stringValue = "FB: \(Int(flex.depth * 100))%"
 
-        if flex.isEnabled {
+        if !flex.isModuleEnabled {
+            MiniHudRefs.effectBadge?.stringValue = "BYPASS"
+            MiniHudRefs.toggleButton?.title = "PWR OFF"
+            MiniHudRefs.toggleButton?.layer?.backgroundColor = NSColor(red: 0.35, green: 0.12, blue: 0.12, alpha: 0.9).cgColor
+            MiniHudRefs.toggleButton?.contentTintColor = NSColor.systemRed
+        } else if flex.isEnabled {
             MiniHudRefs.toggleButton?.title = "ON"
             MiniHudRefs.toggleButton?.layer?.backgroundColor = NSColor.systemYellow.cgColor
             MiniHudRefs.toggleButton?.contentTintColor = NSColor.black

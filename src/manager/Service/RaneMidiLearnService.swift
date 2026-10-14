@@ -87,6 +87,7 @@ public enum ControlInteractionType: String, Codable, CaseIterable {
 public enum ButtonMode: String, Codable, CaseIterable {
     case toggle = "Toggle"
     case hold = "Hold"
+    case direct = "Direct / Switch"
     case trigger = "Trigger"
 }
 
@@ -503,6 +504,8 @@ public class RaneMidiLearnService {
                     if isPressed { flex.isEnabled.toggle() }
                 case .hold:
                     flex.isEnabled = isPressed
+                case .direct:
+                    flex.isEnabled = isPressed
                 case .trigger:
                     if isPressed { flex.isEnabled = true }
                 }
@@ -543,6 +546,8 @@ public class RaneMidiLearnService {
                     if isPressed { flex.isPreFader.toggle() }
                 case .hold:
                     flex.isPreFader = isPressed
+                case .direct:
+                    flex.isPreFader = isPressed
                 case .trigger:
                     if isPressed { flex.isPreFader = true }
                 }
@@ -555,6 +560,8 @@ public class RaneMidiLearnService {
                 case .toggle:
                     if isPressed { flex.isModuleEnabled.toggle() }
                 case .hold:
+                    flex.isModuleEnabled = isPressed
+                case .direct:
                     flex.isModuleEnabled = isPressed
                 case .trigger:
                     if isPressed { flex.isModuleEnabled = true }

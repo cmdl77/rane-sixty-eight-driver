@@ -692,7 +692,14 @@ extension MainWindowController {
         }
         RaneMidiLearnService.shared.addMidiActionObserver { [weak self] target, val in
             DispatchQueue.main.async {
-                self?.appendMidiLog("MIDI TRIGGER: [\(target.displayName)] live ausgeführt (Wert: \(val))")
+                let flex = RaneFlexFxService.shared
+                if target == .modulePower {
+                    self?.appendMidiLog("MIDI TRIGGER: [Modul Power] live geschaltet -> [\(flex.isModuleEnabled ? "AKTIV (ON)" : "ABGESCHALTET / BYPASS (OFF)")] (Raw-Wert: \(val))")
+                } else if target == .fxToggle {
+                    self?.appendMidiLog("MIDI TRIGGER: [FlexFX On/Off] live geschaltet -> [\(flex.isEnabled ? "EFFEKT AKTIV" : "EFFEKT BYPASS")] (Raw-Wert: \(val))")
+                } else {
+                    self?.appendMidiLog("MIDI TRIGGER: [\(target.displayName)] live ausgeführt (Wert: \(val))")
+                }
                 self?.updateFlexFxUi()
             }
         }
