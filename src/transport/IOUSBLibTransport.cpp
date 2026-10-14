@@ -386,22 +386,27 @@ bool IOUSBLibTransport::sendHardwareHandshake() {
     }
 
     if (mHIDDevice) {
-        // 1. Set Control Point to USB Port 1: F0 17 52 01 F7
-        uint8_t pkt1[8] = { 0x04, 0xF0, 0x17, 0x52, 0x07, 0x01, 0xF7, 0x00 };
-        IOReturn kr1 = IOHIDDeviceSetReport(mHIDDevice, kIOHIDReportTypeOutput, 0, pkt1, sizeof(pkt1));
-        RLOG("[Handshake] Set Control Point (USB 1) kr: 0x%08x", kr1);
+        uint8_t portByte = (mCurrentPID == RANE_PID_SIXTY_EIGHT_B) ? RANE_USB_PORT_B : RANE_USB_PORT_A;
 
-        usleep(20000);
+        // 1. Set Control Point / Unmute Audio Engine (Opcode 0x52, 5 bytes): F0 17 52 <port> F7
+        uint8_t pktUnmute[6] = { 0x04, RANE_MIDI_STATUS_SYS_EX, RANE_MIDI_SYSEX_RANE_ID, RANE_SYSEX_OP_UNMUTE, portByte, RANE_MIDI_SYSEX_EOX };
+        IOReturn kr1 = IOHIDDeviceSetReport(mHIDDevice, kIOHIDReportTypeOutput, 0, pktUnmute, sizeof(pktUnmute));
+        RLOG("[Handshake] Set Control Point & Audio Unmute (Port %u) kr: 0x%08x", portByte, kr1);
 
-        // 2. Get All Controls / Unmute Hardware: F0 17 04 F7
-        uint8_t pkt2[8] = { 0x04, 0xF0, 0x17, 0x04, 0x05, 0xF7, 0x00, 0x00 };
-        IOReturn kr2 = IOHIDDeviceSetReport(mHIDDevice, kIOHIDReportTypeOutput, 0, pkt2, sizeof(pkt2));
-        RLOG("[Handshake] Get All Controls / Hardware Unmute kr: 0x%08x", kr2);
+        usleep(10000);
 
-        usleep(20000);
+        // 2. Bulk LED Matrix Clear: Clears all LEDs on the mixer in 1 ms (Opcode 0x09, 12 bytes + report header)
+        uint8_t pktClearLeds[14] = { 0x04, RANE_MIDI_STATUS_SYS_EX, RANE_MIDI_SYSEX_RANE_ID, RANE_SYSEX_OP_BULK_LED,
+                                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, RANE_MIDI_SYSEX_EOX };
+        IOHIDDeviceSetReport(mHIDDevice, kIOHIDReportTypeOutput, 0, pktClearLeds, sizeof(pktClearLeds));
 
-        // 3. Repeat Set Control Point for USB 1
-        IOHIDDeviceSetReport(mHIDDevice, kIOHIDReportTypeOutput, 0, pkt1, sizeof(pkt1));
+        usleep(10000);
+
+        // 3. Request Complete Hardware Controls Dump (Opcode 0x04, 4 bytes): F0 17 04 F7
+        uint8_t pktGetAll[5] = { 0x04, RANE_MIDI_STATUS_SYS_EX, RANE_MIDI_SYSEX_RANE_ID, RANE_SYSEX_OP_GET_ALL, RANE_MIDI_SYSEX_EOX };
+        IOReturn kr2 = IOHIDDeviceSetReport(mHIDDevice, kIOHIDReportTypeOutput, 0, pktGetAll, sizeof(pktGetAll));
+        RLOG("[Handshake] Request Full Hardware Controls Dump kr: 0x%08x", kr2);
+
         RLOG("Rane Sixty-Eight hardware handshake completed successfully!");
         return true;
     }
@@ -471,6 +476,11 @@ bool IOUSBLibTransport::findPipeRef(IOUSBInterfaceInterface942** intf, uint8_t e
 
 void IOUSBLibTransport::closeDevice() {
     stopStreaming();
+    if (mHIDDevice) {
+        // Send Audio Engine Mute (Opcode 0x53, 4 bytes)
+        uint8_t pktMute[5] = { 0x04, RANE_MIDI_STATUS_SYS_EX, RANE_MIDI_SYSEX_RANE_ID, RANE_SYSEX_OP_MUTE, RANE_MIDI_SYSEX_EOX };
+        IOHIDDeviceSetReport(mHIDDevice, kIOHIDReportTypeOutput, 0, pktMute, sizeof(pktMute));
+    }
     teardownHIDBridge();
     mMidiBridge.stop();
     teardownInterfaces();

@@ -119,7 +119,31 @@ class RaneMidiService {
     }
 
     func requestHardwareDump() {
-        sendSysEx([0xF0, 0x17, 0x04, 0x00, 0xF7])
+        sendSysEx([RaneProtocol.sysExStart, RaneProtocol.manufacturerId, RaneProtocol.Opcode.getAllControls, RaneProtocol.sysExEnd])
+    }
+
+    /// Sets the full LED illumination matrix in a single 12-byte SysEx command (Opcode 0x09)
+    func sendBulkLedMatrix(_ matrix: [UInt8]) {
+        var payload = matrix
+        if payload.count < 9 {
+            payload += [UInt8](repeating: 0, count: 9 - payload.count)
+        } else if payload.count > 9 {
+            payload = Array(payload.prefix(9))
+        }
+        var msg = [RaneProtocol.sysExStart, RaneProtocol.manufacturerId, RaneProtocol.Opcode.bulkLedMatrix]
+        msg.append(contentsOf: payload)
+        msg.append(RaneProtocol.sysExEnd)
+        sendSysEx(msg)
+    }
+
+    /// Unmutes the mixer audio engine and designates the active USB port (Opcode 0x52)
+    func sendUnmute(port: UInt8 = RaneProtocol.Port.usbPortA) {
+        sendSysEx([RaneProtocol.sysExStart, RaneProtocol.manufacturerId, RaneProtocol.Opcode.audioUnmute, port, RaneProtocol.sysExEnd])
+    }
+
+    /// Mutes the mixer audio engine (Opcode 0x53)
+    func sendMute() {
+        sendSysEx([RaneProtocol.sysExStart, RaneProtocol.manufacturerId, RaneProtocol.Opcode.audioMute, RaneProtocol.sysExEnd])
     }
 
     func isEndpointOnline(_ endpoint: MIDIEndpointRef) -> Bool {
@@ -176,6 +200,11 @@ class RaneMidiService {
         if current != lastReportedState {
             lastReportedState = current
             if current {
+                // 1. Instant full blank of all hardware LEDs in 1 ms
+                resetAllHardwareLeds()
+                // 2. Unmute Audio Engine Handshake
+                sendUnmute(port: RaneProtocol.Port.usbPortA)
+                // 3. Request complete hardware state dump
                 requestHardwareDump()
             }
             DispatchQueue.main.async {
@@ -295,24 +324,20 @@ class RaneMidiService {
         MIDISend(outPort, destEndpoint, &list)
     }
 
-    /// Turns off all hardware LEDs across all MIDI notes and channels (0..127) as an initial clean slate
+    /// Turns off all hardware LEDs across the mixer simultaneously using Opcode 0x09
     func resetAllHardwareLeds() {
         guard isConnected else { return }
         if destEndpoint == 0 { connectEndpoints() }
         guard destEndpoint != 0 else { return }
 
-        // Turn off all standard MIDI notes (0..127) on Channel 0 (and common control channels)
-        for note in UInt8(0)...UInt8(127) {
-            sendNoteOff(note: note, channel: 0)
-        }
-        for ch in UInt8(1)...UInt8(3) {
+        // 1. High-speed Bulk LED Matrix Set: Clears all hardware LEDs simultaneously in 1 ms (Firmware Opcode 0x09)
+        sendBulkLedMatrix([UInt8](repeating: 0, count: 9))
+
+        // 2. Targeted note-offs for external/virtual mappings
+        for ch in UInt8(0)...UInt8(1) {
             for note in [UInt8(62), UInt8(65), UInt8(66), UInt8(67), UInt8(68), UInt8(69), UInt8(70), UInt8(71)] {
                 sendNoteOff(note: note, channel: ch)
             }
-        }
-        // Turn off cue & flexfx CCs
-        for cc in [UInt8(0), UInt8(4), UInt8(5), UInt8(8), UInt8(9), UInt8(10), UInt8(11), UInt8(12), UInt8(13), UInt8(14), UInt8(15), UInt8(40), UInt8(41), UInt8(56), UInt8(62), UInt8(65), UInt8(66), UInt8(67), UInt8(68), UInt8(69), UInt8(70), UInt8(71)] {
-            sendCC(cc: cc, value: 0, channel: 0)
         }
     }
 

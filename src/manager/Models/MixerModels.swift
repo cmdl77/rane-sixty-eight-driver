@@ -26,3 +26,32 @@ struct LedTestItem {
     let channel: UInt8
     let isMixerControl: Bool
 }
+
+/// Official Rane Sixty-Eight SysEx & Protocol Constants (verified against ARM LPC2468 firmware)
+enum RaneProtocol {
+    static let manufacturerId: UInt8 = 0x17
+    static let sysExStart: UInt8 = 0xF0
+    static let sysExEnd: UInt8 = 0xF7
+
+    enum Opcode {
+        static let deviceIdQuery: UInt8 = 0x01
+        static let getSetParams: UInt8 = 0x02
+        static let getAllControls: UInt8 = 0x04
+        static let bulkLedMatrix: UInt8 = 0x09
+        static let dspFxParams: UInt8 = 0x18
+        static let audioUnmute: UInt8 = 0x52
+        static let audioMute: UInt8 = 0x53
+        static let heartbeat: UInt8 = 0x55
+        static let bootloaderEnter: UInt8 = 0x7C
+        static let bootloaderExit: UInt8 = 0x7D
+    }
+
+    enum Port {
+        static let usbPortA: UInt8 = 0x00
+        static let usbPortB: UInt8 = 0x01
+    }
+
+    enum CC {
+        static let hardwareHeartbeat: UInt8 = 0x56 // CC #86
+    }
+}
