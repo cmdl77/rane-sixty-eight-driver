@@ -30,5 +30,7 @@
     <true/>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Rane Sixty-Eight Control Panel benötigt Zugriff auf Audio-Eingänge für das Software FlexFX Modul.</string>
 </dict>
 </plist>

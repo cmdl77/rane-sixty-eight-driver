@@ -45,8 +45,8 @@ cp -R RaneHAL.driver RaneMIDIAgent rane-selftest rane-stresstest "Rane Driver Ma
 
 # Compile Universal 2 Swift Binary from modular sources (x86_64 + arm64)
 SWIFT_FILES=$(find "${SCRIPT_DIR}/src/manager" -name "*.swift" | sort)
-swiftc -O -target x86_64-apple-macos11.0 -framework Cocoa -framework IOKit -framework CoreMIDI ${SWIFT_FILES} -o "Rane Driver Manager.app/Contents/MacOS/Rane Driver Manager_x86"
-swiftc -O -target arm64-apple-macos11.0 -framework Cocoa -framework IOKit -framework CoreMIDI ${SWIFT_FILES} -o "Rane Driver Manager.app/Contents/MacOS/Rane Driver Manager_arm"
+swiftc -O -whole-module-optimization -target x86_64-apple-macos11.0 -import-objc-header "${SCRIPT_DIR}/src/manager/Link/RaneLinkBridge.h" -L"${SCRIPT_DIR}/lib" -labl_link -lc++ -framework Cocoa -framework IOKit -framework CoreMIDI -framework CoreAudio -framework AudioToolbox -framework AVFoundation ${SWIFT_FILES} -o "Rane Driver Manager.app/Contents/MacOS/Rane Driver Manager_x86"
+swiftc -O -whole-module-optimization -target arm64-apple-macos11.0 -import-objc-header "${SCRIPT_DIR}/src/manager/Link/RaneLinkBridge.h" -L"${SCRIPT_DIR}/lib" -labl_link -lc++ -framework Cocoa -framework IOKit -framework CoreMIDI -framework CoreAudio -framework AudioToolbox -framework AVFoundation ${SWIFT_FILES} -o "Rane Driver Manager.app/Contents/MacOS/Rane Driver Manager_arm"
 lipo -create -output "Rane Driver Manager.app/Contents/MacOS/Rane Driver Manager" \
      "Rane Driver Manager.app/Contents/MacOS/Rane Driver Manager_x86" \
      "Rane Driver Manager.app/Contents/MacOS/Rane Driver Manager_arm"
@@ -54,7 +54,8 @@ rm -f "Rane Driver Manager.app/Contents/MacOS/Rane Driver Manager_x86" "Rane Dri
 
 rm -rf "Rane Sixty-Eight Control Panel.app"
 cp -R "Rane Driver Manager.app" "Rane Sixty-Eight Control Panel.app"
-codesign --force --deep --sign - "Rane Sixty-Eight Control Panel.app"
+codesign --force --deep --sign - --entitlements "${SCRIPT_DIR}/src/manager/Entitlements.plist" "Rane Sixty-Eight Control Panel.app"
+codesign --force --deep --sign - --entitlements "${SCRIPT_DIR}/src/manager/Entitlements.plist" "Rane Driver Manager.app"
 
 echo ""
 echo "========================================="

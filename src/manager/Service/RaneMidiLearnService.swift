@@ -317,6 +317,9 @@ public class RaneMidiLearnService {
 
         // 2. Normal Mode: check if message matches any mapped target
         var handled = false
+        let isNoteOff = (typeNibble == 0x80) || (typeNibble == 0x90 && d2 == 0)
+        let isPressed = isNoteMessage ? !isNoteOff : (d2 > 0)
+
         for (target, mapping) in mappings {
             if mapping.type == msgType && mapping.number == d1 {
                 // If channel is specified, verify match
@@ -329,14 +332,14 @@ public class RaneMidiLearnService {
                 let iType = mapping.interactionType
                 let bMode = mapping.buttonMode
                 DispatchQueue.main.async { [weak self] in
-                    self?.executeTargetAction(target: target, rawValue: d2, normValue: normVal, interactionType: iType, buttonMode: bMode)
+                    self?.executeTargetAction(target: target, rawValue: d2, normValue: normVal, isPressed: isPressed, interactionType: iType, buttonMode: bMode)
                 }
             }
         }
         return handled
     }
 
-    private func executeTargetAction(target: FlexFxMidiTarget, rawValue: UInt8, normValue: Float, interactionType: ControlInteractionType, buttonMode: ButtonMode = .toggle) {
+    private func executeTargetAction(target: FlexFxMidiTarget, rawValue: UInt8, normValue: Float, isPressed: Bool, interactionType: ControlInteractionType, buttonMode: ButtonMode = .toggle) {
         let flex = RaneFlexFxService.shared
         flex.isSuppressingHardwareLeds = true
         defer { flex.isSuppressingHardwareLeds = false }
@@ -344,7 +347,6 @@ public class RaneMidiLearnService {
         // Encoder relative step calculation (65 / 1 = +1, 63 / 127 = -1)
         let isRelativeIncrement = (rawValue == 1 || rawValue == 65)
         let isRelativeDecrement = (rawValue == 127 || rawValue == 63)
-        let isPressed = (rawValue > 0)
 
         switch target {
         case .fxFilter:
