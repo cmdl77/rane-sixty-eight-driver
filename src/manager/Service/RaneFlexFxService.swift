@@ -121,7 +121,7 @@ class RaneFlexFxService {
                 startAudioEngine()
             } else {
                 rane_link_enable(false)
-                clearAllHardwareLeds()
+                if !isSuppressingHardwareLeds { clearAllHardwareLeds() }
             }
             notifyStateChanged()
         }

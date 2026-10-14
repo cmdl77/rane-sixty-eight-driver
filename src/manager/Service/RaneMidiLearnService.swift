@@ -500,17 +500,15 @@ public class RaneMidiLearnService {
         case .fxToggle:
             if interactionType == .button {
                 switch buttonMode {
-                case .toggle:
+                case .toggle, .trigger:
                     if isPressed { flex.isEnabled.toggle() }
                 case .hold:
                     flex.isEnabled = isPressed
                 case .direct:
                     flex.isEnabled = isPressed
-                case .trigger:
-                    if isPressed { flex.isEnabled = true }
                 }
             } else {
-                flex.isEnabled = (normValue > 0.5)
+                flex.isEnabled = (normValue > 0.5 || rawValue > 0)
             }
         case .prevBeat:
             if isPressed { flex.cycleBeatDivision(forward: false) }
@@ -542,17 +540,15 @@ public class RaneMidiLearnService {
         case .prePost:
             if interactionType == .button {
                 switch buttonMode {
-                case .toggle:
+                case .toggle, .trigger:
                     if isPressed { flex.isPreFader.toggle() }
                 case .hold:
                     flex.isPreFader = isPressed
                 case .direct:
                     flex.isPreFader = isPressed
-                case .trigger:
-                    if isPressed { flex.isPreFader = true }
                 }
             } else {
-                flex.isPreFader = (normValue > 0.5)
+                flex.isPreFader = (normValue > 0.5 || rawValue > 0)
             }
         case .modulePower:
             if interactionType == .button {
@@ -564,10 +560,13 @@ public class RaneMidiLearnService {
                 case .direct:
                     flex.isModuleEnabled = isPressed
                 case .trigger:
-                    if isPressed { flex.isModuleEnabled = true }
+                    // Trigger: Ein Trigger schaltet um (True/False bzw. 0/1...an..aus)
+                    if isPressed {
+                        flex.isModuleEnabled.toggle()
+                    }
                 }
             } else {
-                flex.isModuleEnabled = (normValue > 0.5)
+                flex.isModuleEnabled = (normValue > 0.5 || rawValue > 0)
             }
         }
 
