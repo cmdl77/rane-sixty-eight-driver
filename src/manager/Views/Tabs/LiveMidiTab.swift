@@ -392,25 +392,25 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
     // MARK: - Controller Manager & Filter Callbacks
     private func setupControllerManagerCallbacks() {
         let learn = RaneMidiLearnService.shared
-        let originalOnUpdated = learn.onMappingUpdated
-        learn.onMappingUpdated = {
-            originalOnUpdated?()
+        learn.addMappingObserver {
             DispatchQueue.main.async {
                 ControllerManagerRefs.mappingTableView?.reloadData()
             }
         }
 
-        let originalOnTargetChanged = learn.onSelectedTargetChanged
-        learn.onSelectedTargetChanged = { target in
-            originalOnTargetChanged?(target)
+        learn.addSelectedTargetObserver { _ in
             DispatchQueue.main.async {
                 ControllerManagerRefs.mappingTableView?.reloadData()
             }
         }
 
-        let originalOnFilterUpdated = learn.onFilterRulesUpdated
-        learn.onFilterRulesUpdated = {
-            originalOnFilterUpdated?()
+        learn.addLearnModeObserver { _ in
+            DispatchQueue.main.async {
+                ControllerManagerRefs.mappingTableView?.reloadData()
+            }
+        }
+
+        learn.addFilterRulesObserver {
             DispatchQueue.main.async {
                 ControllerManagerRefs.filterTableView?.reloadData()
             }

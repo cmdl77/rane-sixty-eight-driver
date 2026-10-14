@@ -130,12 +130,18 @@ public class RaneMidiLearnService {
                 selectedTarget = nil
             }
             onLearnModeChanged?(isLearnModeActive)
+            for obs in learnModeObservers.values {
+                obs(isLearnModeActive)
+            }
         }
     }
 
     public var selectedTarget: FlexFxMidiTarget? = nil {
         didSet {
             onSelectedTargetChanged?(selectedTarget)
+            for obs in selectedTargetObservers.values {
+                obs(selectedTarget)
+            }
         }
     }
 
@@ -145,12 +151,68 @@ public class RaneMidiLearnService {
     // Filtered / Blocked MIDI Rules
     private(set) var filterRules: [MidiFilterRule] = []
 
-    // Callbacks
+    // Callbacks & Multicast Observers
     public var onLearnModeChanged: ((Bool) -> Void)?
     public var onSelectedTargetChanged: ((FlexFxMidiTarget?) -> Void)?
     public var onMappingUpdated: (() -> Void)?
     public var onFilterRulesUpdated: (() -> Void)?
     public var onMidiActionTriggered: ((FlexFxMidiTarget, Float) -> Void)?
+
+    private var mappingObservers: [UUID: () -> Void] = [:]
+    private var learnModeObservers: [UUID: (Bool) -> Void] = [:]
+    private var selectedTargetObservers: [UUID: (FlexFxMidiTarget?) -> Void] = [:]
+    private var filterRulesObservers: [UUID: () -> Void] = [:]
+    private var midiActionObservers: [UUID: (FlexFxMidiTarget, Float) -> Void] = [:]
+
+    @discardableResult
+    public func addMappingObserver(_ observer: @escaping () -> Void) -> UUID {
+        let id = UUID()
+        mappingObservers[id] = observer
+        return id
+    }
+    public func removeMappingObserver(_ id: UUID) {
+        mappingObservers.removeValue(forKey: id)
+    }
+
+    @discardableResult
+    public func addLearnModeObserver(_ observer: @escaping (Bool) -> Void) -> UUID {
+        let id = UUID()
+        learnModeObservers[id] = observer
+        return id
+    }
+    public func removeLearnModeObserver(_ id: UUID) {
+        learnModeObservers.removeValue(forKey: id)
+    }
+
+    @discardableResult
+    public func addSelectedTargetObserver(_ observer: @escaping (FlexFxMidiTarget?) -> Void) -> UUID {
+        let id = UUID()
+        selectedTargetObservers[id] = observer
+        return id
+    }
+    public func removeSelectedTargetObserver(_ id: UUID) {
+        selectedTargetObservers.removeValue(forKey: id)
+    }
+
+    @discardableResult
+    public func addFilterRulesObserver(_ observer: @escaping () -> Void) -> UUID {
+        let id = UUID()
+        filterRulesObservers[id] = observer
+        return id
+    }
+    public func removeFilterRulesObserver(_ id: UUID) {
+        filterRulesObservers.removeValue(forKey: id)
+    }
+
+    @discardableResult
+    public func addMidiActionObserver(_ observer: @escaping (FlexFxMidiTarget, Float) -> Void) -> UUID {
+        let id = UUID()
+        midiActionObservers[id] = observer
+        return id
+    }
+    public func removeMidiActionObserver(_ id: UUID) {
+        midiActionObservers.removeValue(forKey: id)
+    }
 
     private init() {
         loadMappings()
@@ -188,6 +250,9 @@ public class RaneMidiLearnService {
             print("Failed to save MIDI learn mappings: \(error)")
         }
         onMappingUpdated?()
+        for obs in mappingObservers.values {
+            obs()
+        }
     }
 
     private func loadFilterRules() {
@@ -211,6 +276,9 @@ public class RaneMidiLearnService {
             print("Failed to save MIDI filter rules: \(error)")
         }
         onFilterRulesUpdated?()
+        for obs in filterRulesObservers.values {
+            obs()
+        }
     }
 
     public func addFilterRule(_ rule: MidiFilterRule) {
@@ -299,17 +367,20 @@ public class RaneMidiLearnService {
         // 1. In Learn Mode: map currently selected target to this incoming message
         if isLearnModeActive {
             if let target = selectedTarget {
-                let newMapping = MidiMapping(type: msgType, number: d1, channel: channel)
+                let existing = mappings[target]
+                let iType = existing?.interactionType ?? ((target == .dryWet || target == .depth) ? .faderKnob : (msgType == .note ? .button : .faderKnob))
+                let bMode = existing?.buttonMode ?? .toggle
+                let newMapping = MidiMapping(type: msgType, number: d1, channel: channel, interactionType: iType, buttonMode: bMode)
                 // Remove any existing target that used this exact message to avoid conflicts
                 for (t, m) in mappings where m == newMapping {
                     mappings.removeValue(forKey: t)
                 }
                 mappings[target] = newMapping
                 saveMappings()
-                // Auto-advance or keep selected
-                DispatchQueue.main.async { [weak self] in
-                    self?.selectedTarget = nil
-                }
+
+                // Synchronously disable Learn Mode so that subsequent MIDI events take effect immediately live!
+                self.isLearnModeActive = false
+                self.selectedTarget = nil
                 return true
             }
             return false
@@ -445,5 +516,8 @@ public class RaneMidiLearnService {
         }
 
         onMidiActionTriggered?(target, normValue)
+        for obs in midiActionObservers.values {
+            obs(target, normValue)
+        }
     }
 }

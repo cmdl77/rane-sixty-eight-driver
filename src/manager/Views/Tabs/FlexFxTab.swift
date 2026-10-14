@@ -558,16 +558,6 @@ extension MainWindowController {
         // 3. Highlight Effect Buttons
         for (fx, btn) in Self.flexFxRefs.fxButtons {
             let isCurrent = (fx == s.currentEffect)
-            let target: FlexFxMidiTarget
-            switch fx {
-            case .filter:  target = .fxFilter
-            case .flanger: target = .fxFlanger
-            case .phaser:  target = .fxPhaser
-            case .echo:    target = .fxEcho
-            case .robot:   target = .fxRobot
-            case .reverb:  target = .fxReverb
-            }
-
             if isCurrent && s.isModuleEnabled {
                 btn.layer?.backgroundColor = NSColor(red: 0.32, green: 0.24, blue: 0.08, alpha: 1.0).cgColor
                 btn.layer?.borderColor = NSColor.systemYellow.cgColor
@@ -680,15 +670,21 @@ extension MainWindowController {
             }
         }
 
-        RaneMidiLearnService.shared.onLearnModeChanged = { [weak self] _ in
-            self?.updateFlexFxUi()
+        RaneMidiLearnService.shared.addLearnModeObserver { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.updateFlexFxUi()
+            }
         }
-        RaneMidiLearnService.shared.onMappingUpdated = { [weak self] in
-            self?.updateFlexFxUi()
+        RaneMidiLearnService.shared.addMappingObserver { [weak self] in
+            DispatchQueue.main.async {
+                self?.updateFlexFxUi()
+            }
         }
-        RaneMidiLearnService.shared.onMidiActionTriggered = { [weak self] target, val in
-            self?.appendMidiLog("MIDI LEARN TRIGGER: [\(target.displayName)] ausgeführt (Wert: \(val))")
-            self?.updateFlexFxUi()
+        RaneMidiLearnService.shared.addMidiActionObserver { [weak self] target, val in
+            DispatchQueue.main.async {
+                self?.appendMidiLog("MIDI TRIGGER: [\(target.displayName)] live ausgeführt (Wert: \(val))")
+                self?.updateFlexFxUi()
+            }
         }
     }
 
