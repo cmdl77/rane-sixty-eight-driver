@@ -24,6 +24,17 @@ public enum FlexFxType: Int, CaseIterable, Codable {
         case .reverb:   return "REVERB"
         }
     }
+
+    public var activeDisplayName: String {
+        let slots = RanePluginHostService.shared.slots
+        if self.rawValue < slots.count {
+            let slot = slots[self.rawValue]
+            if slot.isCustomPlugin {
+                return slot.pluginName.uppercased()
+            }
+        }
+        return self.displayName
+    }
 }
 
 public struct FxParameters: Codable {
@@ -815,6 +826,29 @@ class RaneFlexFxService {
         let wet = Float(dryWet)
         let dry = 1.0 - (fxActive ? wet : 0.0) // Dry is full volume when effect bypassed
         let fb = Float(min(0.92, depth * 0.88))
+
+        // 1. Check if current slot has an external hosted VST / AudioUnit plugin loaded
+        if RanePluginHostService.shared.processSlot(currentEffect.rawValue,
+                                                   inL: inL,
+                                                   inR: inR,
+                                                   outL: scratchOutL,
+                                                   outR: scratchOutR,
+                                                   frames: frames) {
+            for i in 0..<frames {
+                let xL = inL[i]
+                let xR = inR[i]
+                let wL = scratchOutL[i]
+                let wR = scratchOutR[i]
+                if fxActive {
+                    outL[i] = (xL * dry) + (wL * wet)
+                    outR[i] = (xR * dry) + (wR * wet)
+                } else {
+                    outL[i] = xL
+                    outR[i] = xR
+                }
+            }
+            return
+        }
 
         let delaySamples = min(maxDelaySamples - 1, max(1, Int((delayTimeMs / 1000.0) * sampleRate)))
 

@@ -16,6 +16,8 @@ extension MainWindowController {
         var oledLinkBadge: NSTextField!
         var beatDots: [NSView] = []
         var fxButtons: [FlexFxType: NSButton] = [:]
+        var pluginPopups: [FlexFxType: NSPopUpButton] = [:]
+        var pluginUiButtons: [FlexFxType: NSButton] = [:]
         var prevBeatButton: NSButton!
         var nextBeatButton: NSButton!
         var beatSegments: NSSegmentedControl!
@@ -262,33 +264,33 @@ extension MainWindowController {
         return oled
     }
 
-    // MARK: - 6 Effect Matrix Buttons (Clean, Authentic Look Without Icons)
+    // MARK: - 6 Effect Matrix Buttons & VST / AudioUnit Slot Rack
     private func createFxButtonsMatrix() -> NSView {
         let gridStack = NSStackView()
         gridStack.orientation = .vertical
         gridStack.alignment = .leading
-        gridStack.spacing = 8
+        gridStack.spacing = 10
 
         let row1 = NSStackView()
         row1.orientation = .horizontal
         row1.distribution = .fillEqually
-        row1.spacing = 10
+        row1.spacing = 12
 
         let row2 = NSStackView()
         row2.orientation = .horizontal
         row2.distribution = .fillEqually
-        row2.spacing = 10
+        row2.spacing = 12
 
         let effectsRow1: [FlexFxType] = [.filter, .flanger, .phaser]
         let effectsRow2: [FlexFxType] = [.echo, .dubDelay, .reverb]
 
         for fx in effectsRow1 {
-            let btn = createTactileFxButton(type: fx)
-            row1.addArrangedSubview(btn)
+            let slotModule = createFxSlotModule(type: fx)
+            row1.addArrangedSubview(slotModule)
         }
         for fx in effectsRow2 {
-            let btn = createTactileFxButton(type: fx)
-            row2.addArrangedSubview(btn)
+            let slotModule = createFxSlotModule(type: fx)
+            row2.addArrangedSubview(slotModule)
         }
 
         gridStack.addArrangedSubview(row1)
@@ -297,6 +299,81 @@ extension MainWindowController {
         row2.widthAnchor.constraint(equalTo: gridStack.widthAnchor).isActive = true
 
         return gridStack
+    }
+
+    private func createFxSlotModule(type: FlexFxType) -> NSView {
+        let card = NSStackView()
+        card.orientation = .vertical
+        card.alignment = .leading
+        card.spacing = 5
+        card.translatesAutoresizingMaskIntoConstraints = false
+
+        // Top Row: Tactile Selection Button + Native Plugin UI Opener
+        let topRow = NSStackView()
+        topRow.orientation = .horizontal
+        topRow.alignment = .centerY
+        topRow.spacing = 6
+        topRow.translatesAutoresizingMaskIntoConstraints = false
+
+        let btn = createTactileFxButton(type: type)
+        topRow.addArrangedSubview(btn)
+        btn.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let uiBtn = NSButton(title: "🎛 UI", target: self, action: #selector(onPluginUiButtonClicked(_:)))
+        uiBtn.bezelStyle = .inline
+        uiBtn.font = NSFont.systemFont(ofSize: 11, weight: .bold)
+        uiBtn.wantsLayer = true
+        uiBtn.layer?.cornerRadius = 5
+        uiBtn.layer?.backgroundColor = NSColor(red: 0.16, green: 0.20, blue: 0.26, alpha: 0.9).cgColor
+        uiBtn.contentTintColor = NSColor.cyan
+        uiBtn.toolTip = Localization.tr(en: "Open native VST/AU plugin interface", de: "Natives VST/AudioUnit Plugin-Fenster öffnen")
+        uiBtn.tag = type.rawValue
+        uiBtn.translatesAutoresizingMaskIntoConstraints = false
+        uiBtn.widthAnchor.constraint(equalToConstant: 44).isActive = true
+        uiBtn.heightAnchor.constraint(equalToConstant: 34).isActive = true
+        topRow.addArrangedSubview(uiBtn)
+        Self.flexFxRefs.pluginUiButtons[type] = uiBtn
+
+        card.addArrangedSubview(topRow)
+        topRow.widthAnchor.constraint(equalTo: card.widthAnchor).isActive = true
+
+        // Bottom Row: Plugin Selector Dropdown
+        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+        popup.bezelStyle = .rounded
+        popup.font = NSFont.systemFont(ofSize: 10, weight: .medium)
+        popup.tag = type.rawValue
+        popup.target = self
+        popup.action = #selector(onPluginSelected(_:))
+        popup.translatesAutoresizingMaskIntoConstraints = false
+        popup.heightAnchor.constraint(equalToConstant: 22).isActive = true
+
+        rebuildPluginMenu(for: popup, type: type)
+
+        card.addArrangedSubview(popup)
+        popup.widthAnchor.constraint(equalTo: card.widthAnchor).isActive = true
+        Self.flexFxRefs.pluginPopups[type] = popup
+
+        return card
+    }
+
+    private func rebuildPluginMenu(for popup: NSPopUpButton, type: FlexFxType) {
+        popup.removeAllItems()
+        popup.addItem(withTitle: "● DaisySP: \(type.displayName)")
+        popup.lastItem?.representedObject = nil
+
+        let plugins = RanePluginHostService.shared.availablePlugins
+        if !plugins.isEmpty {
+            popup.menu?.addItem(NSMenuItem.separator())
+            let header = NSMenuItem(title: "— Installierte VST / AU Plugins —", action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            popup.menu?.addItem(header)
+
+            for p in plugins {
+                let item = NSMenuItem(title: "\(p.name) [\(p.manufacturer)]", action: nil, keyEquivalent: "")
+                item.representedObject = p.id
+                popup.menu?.addItem(item)
+            }
+        }
     }
 
     private func createTactileFxButton(type: FlexFxType) -> NSButton {
@@ -557,12 +634,12 @@ extension MainWindowController {
             }
         } else {
             if s.isEnabled {
-                Self.flexFxRefs.oledEffectName?.stringValue = s.currentEffect.displayName
+                Self.flexFxRefs.oledEffectName?.stringValue = s.currentEffect.activeDisplayName
                 Self.flexFxRefs.oledEffectName?.textColor = NSColor(red: 1.0, green: 0.82, blue: 0.20, alpha: 1.0)
                 Self.flexFxRefs.oledBeatLabel?.stringValue = "\(s.currentDivision.label) BEAT (\(String(format: "%.1f", s.delayTimeMs)) ms)"
                 Self.flexFxRefs.oledBeatLabel?.textColor = NSColor(white: 0.95, alpha: 1.0)
             } else {
-                Self.flexFxRefs.oledEffectName?.stringValue = "\(s.currentEffect.displayName) (BYPASS)"
+                Self.flexFxRefs.oledEffectName?.stringValue = "\(s.currentEffect.activeDisplayName) (BYPASS)"
                 Self.flexFxRefs.oledEffectName?.textColor = NSColor(white: 0.55, alpha: 1.0)
                 Self.flexFxRefs.oledBeatLabel?.stringValue = "\(s.currentDivision.label) BEAT (BYPASS)"
                 Self.flexFxRefs.oledBeatLabel?.textColor = NSColor(white: 0.55, alpha: 1.0)
@@ -580,8 +657,15 @@ extension MainWindowController {
             }
         }
 
-        // 3. Highlight Effect Buttons
+        // 3. Highlight Effect Buttons & Update Titles to Plugin Name
         for (fx, btn) in Self.flexFxRefs.fxButtons {
+            let slot = RanePluginHostService.shared.slots[fx.rawValue]
+            if slot.isCustomPlugin {
+                btn.title = slot.pluginName.uppercased()
+            } else {
+                btn.title = fx.displayName
+            }
+
             let isCurrent = (fx == s.currentEffect)
             if isCurrent && s.isModuleEnabled {
                 btn.layer?.backgroundColor = NSColor(red: 0.32, green: 0.24, blue: 0.08, alpha: 1.0).cgColor
@@ -591,6 +675,24 @@ extension MainWindowController {
                 btn.layer?.backgroundColor = NSColor(red: 0.13, green: 0.135, blue: 0.15, alpha: 1.0).cgColor
                 btn.layer?.borderColor = NSColor(white: 0.32, alpha: 0.5).cgColor
                 btn.contentTintColor = NSColor(white: 0.75, alpha: 1.0)
+            }
+        }
+
+        // 3b. Update Plugin Dropdowns and Plugin UI Buttons
+        for (fx, uiBtn) in Self.flexFxRefs.pluginUiButtons {
+            let slot = RanePluginHostService.shared.slots[fx.rawValue]
+            uiBtn.isEnabled = slot.isCustomPlugin
+            uiBtn.layer?.opacity = slot.isCustomPlugin ? 1.0 : 0.4
+        }
+
+        for (fx, popup) in Self.flexFxRefs.pluginPopups {
+            let slot = RanePluginHostService.shared.slots[fx.rawValue]
+            if slot.isCustomPlugin {
+                if let idx = popup.itemArray.firstIndex(where: { ($0.representedObject as? String) == slot.pluginId }) {
+                    popup.selectItem(at: idx)
+                }
+            } else {
+                popup.selectItem(at: 0)
             }
         }
 
@@ -697,15 +799,46 @@ extension MainWindowController {
                     self?.appendMidiLog("MIDI TRIGGER: [Modul Power] live geschaltet -> [\(flex.isModuleEnabled ? "AKTIV (ON)" : "ABGESCHALTET / BYPASS (OFF)")] (Raw-Wert: \(val))")
                 } else if target == .fxToggle {
                     self?.appendMidiLog("MIDI TRIGGER: [FlexFX On/Off] live geschaltet -> [\(flex.isEnabled ? "EFFEKT AKTIV" : "EFFEKT BYPASS")] (Raw-Wert: \(val))")
-                } else {
-                    self?.appendMidiLog("MIDI TRIGGER: [\(target.displayName)] live ausgeführt (Wert: \(val))")
                 }
+                self?.updateFlexFxUi()
+            }
+        }
+
+        RanePluginHostService.shared.onSlotsChanged = { [weak self] in
+            DispatchQueue.main.async {
                 self?.updateFlexFxUi()
             }
         }
     }
 
     // MARK: - Action Handlers
+    @objc func onPluginSelected(_ sender: NSPopUpButton) {
+        let slotIdx = sender.tag
+        guard let fx = FlexFxType(rawValue: slotIdx) else { return }
+        let selIdx = sender.indexOfSelectedItem
+        if selIdx == 0 {
+            RanePluginHostService.shared.loadPlugin(slotIndex: slotIdx, pluginInfo: nil) { [weak self] _ in
+                self?.appendMidiLog("FlexFX Rack: Slot \(slotIdx + 1) (\(fx.displayName)) -> Auf internen DaisySP Algorithmus zurückgestellt.")
+                self?.updateFlexFxUi()
+            }
+        } else if let pluginId = sender.selectedItem?.representedObject as? String,
+                  let info = RanePluginHostService.shared.availablePlugins.first(where: { $0.id == pluginId }) {
+            RanePluginHostService.shared.loadPlugin(slotIndex: slotIdx, pluginInfo: info) { [weak self] success in
+                if success {
+                    self?.appendMidiLog("FlexFX Rack: Slot \(slotIdx + 1) (\(fx.displayName)) -> VST/AU Plugin '\(info.name)' geladen!")
+                } else {
+                    self?.appendMidiLog("FlexFX Rack: Fehler beim Laden von '\(info.name)'!")
+                }
+                self?.updateFlexFxUi()
+            }
+        }
+    }
+
+    @objc func onPluginUiButtonClicked(_ sender: NSButton) {
+        let slotIdx = sender.tag
+        RanePluginHostService.shared.openPluginUI(for: slotIdx)
+    }
+
     @objc func onModulePowerToggled(_ sender: NSSwitch) {
         let isPowerOn = (sender.state == .on)
         RaneFlexFxService.shared.isModuleEnabled = isPowerOn
