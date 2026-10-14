@@ -645,7 +645,7 @@ class RaneFlexFxService {
         for (target, state) in targetStates {
             if let outMap = learn.outMappingFor(target: target) {
                 let ch = (outMap.channel == 255) ? 0 : outMap.channel
-                let vel = state ? outMap.onColor.onVelocity : outMap.offColor.offVelocity
+                let vel = state ? outMap.onValue : outMap.offValue
                 if outMap.type == .note {
                     handledNotes.insert(outMap.number)
                     if vel > 0 {
@@ -694,7 +694,7 @@ class RaneFlexFxService {
         // Clear all custom configured out-mapping LEDs
         for (_, outMap) in learn.outMappings {
             let ch = (outMap.channel == 255) ? 0 : outMap.channel
-            let offVel = outMap.offColor.offVelocity
+            let offVel = outMap.offValue
             if outMap.type == .note {
                 if offVel > 0 {
                     midi.sendNoteOn(note: outMap.number, velocity: offVel, channel: ch)

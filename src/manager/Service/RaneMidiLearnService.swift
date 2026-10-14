@@ -187,21 +187,57 @@ public struct MidiOutMapping: Codable, Equatable {
     public var type: MidiMessageType
     public var number: UInt8   // Note number (0-127) or CC number (0-127)
     public var channel: UInt8  // 0-15 (or 255 for default ch 0)
-    public var onColor: LedColor
-    public var offColor: LedColor
+    public var onValue: UInt8  // 0..127 Velocity / CC Value
+    public var offValue: UInt8 // 0..127 Velocity / CC Value
 
-    public init(type: MidiMessageType = .note, number: UInt8 = 0, channel: UInt8 = 0, onColor: LedColor = .on, offColor: LedColor = .off) {
+    public init(type: MidiMessageType = .note, number: UInt8 = 0, channel: UInt8 = 0, onValue: UInt8 = 127, offValue: UInt8 = 0) {
         self.type = type
         self.number = number
         self.channel = channel
-        self.onColor = onColor
-        self.offColor = offColor
+        self.onValue = onValue
+        self.offValue = offValue
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.type = try container.decode(MidiMessageType.self, forKey: .type)
+        self.number = try container.decode(UInt8.self, forKey: .number)
+        self.channel = try container.decode(UInt8.self, forKey: .channel)
+
+        if let onV = try container.decodeIfPresent(UInt8.self, forKey: .onValue) {
+            self.onValue = onV
+        } else if let onColor = try container.decodeIfPresent(LedColor.self, forKey: .onColor) {
+            self.onValue = onColor.onVelocity
+        } else {
+            self.onValue = 127
+        }
+
+        if let offV = try container.decodeIfPresent(UInt8.self, forKey: .offValue) {
+            self.offValue = offV
+        } else if let offColor = try container.decodeIfPresent(LedColor.self, forKey: .offColor) {
+            self.offValue = offColor.offVelocity
+        } else {
+            self.offValue = 0
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case type, number, channel, onValue, offValue, onColor, offColor
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(type, forKey: .type)
+        try container.encode(number, forKey: .number)
+        try container.encode(channel, forKey: .channel)
+        try container.encode(onValue, forKey: .onValue)
+        try container.encode(offValue, forKey: .offValue)
     }
 
     public var summary: String {
         let chStr = (channel == 255) ? "Ch 1" : "Ch \(channel + 1)"
         let tStr = (type == .note) ? "Note" : "CC #"
-        return "\(chStr) • \(tStr)\(number) [ON: \(onColor.rawValue) / OFF: \(offColor.rawValue)]"
+        return "\(chStr) • \(tStr)\(number) [ON: \(onValue) / OFF: \(offValue)]"
     }
 }
 
@@ -369,14 +405,14 @@ public class RaneMidiLearnService {
         guard let data = UserDefaults.standard.data(forKey: outDefaultsKey) else {
             // Setup default Sixty-Eight hardware LEDs out-mapping for quick out-of-the-box experience
             self.outMappings = [
-                .modulePower: MidiOutMapping(type: .note, number: 19, channel: 0, onColor: .on, offColor: .off),
-                .fxToggle:    MidiOutMapping(type: .note, number: 0,  channel: 0, onColor: .on, offColor: .off),
-                .fxFilter:    MidiOutMapping(type: .note, number: 12, channel: 0, onColor: .on, offColor: .off),
-                .fxFlanger:   MidiOutMapping(type: .note, number: 11, channel: 0, onColor: .on, offColor: .off),
-                .fxPhaser:    MidiOutMapping(type: .note, number: 10, channel: 0, onColor: .on, offColor: .off),
-                .fxEcho:      MidiOutMapping(type: .note, number: 13, channel: 0, onColor: .on, offColor: .off),
-                .fxDubDelay:  MidiOutMapping(type: .note, number: 9,  channel: 0, onColor: .on, offColor: .off),
-                .fxReverb:    MidiOutMapping(type: .note, number: 8,  channel: 0, onColor: .on, offColor: .off)
+                .modulePower: MidiOutMapping(type: .note, number: 19, channel: 0, onValue: 127, offValue: 0),
+                .fxToggle:    MidiOutMapping(type: .note, number: 0,  channel: 0, onValue: 127, offValue: 0),
+                .fxFilter:    MidiOutMapping(type: .note, number: 12, channel: 0, onValue: 127, offValue: 0),
+                .fxFlanger:   MidiOutMapping(type: .note, number: 11, channel: 0, onValue: 127, offValue: 0),
+                .fxPhaser:    MidiOutMapping(type: .note, number: 10, channel: 0, onValue: 127, offValue: 0),
+                .fxEcho:      MidiOutMapping(type: .note, number: 13, channel: 0, onValue: 127, offValue: 0),
+                .fxDubDelay:  MidiOutMapping(type: .note, number: 9,  channel: 0, onValue: 127, offValue: 0),
+                .fxReverb:    MidiOutMapping(type: .note, number: 8,  channel: 0, onValue: 127, offValue: 0)
             ]
             return
         }

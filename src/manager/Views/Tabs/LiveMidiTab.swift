@@ -441,13 +441,13 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
             tableView.addTableColumn(col2)
 
             let col3 = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("OnColor"))
-            col3.title = "On State Color"
-            col3.width = 150
+            col3.title = "On Value (0-127)"
+            col3.width = 110
             tableView.addTableColumn(col3)
 
             let col4 = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("OffColor"))
-            col4.title = "Off State Color"
-            col4.width = 150
+            col4.title = "Off Value (0-127)"
+            col4.width = 110
             tableView.addTableColumn(col4)
 
             let col5 = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("TestLed"))
@@ -627,35 +627,29 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
 
                 return stack
             } else if cellId == "OnColor" {
-                let colorPop = NSPopUpButton(frame: .zero, pullsDown: false)
-                colorPop.controlSize = .small
-                colorPop.font = NSFont.systemFont(ofSize: 10, weight: .medium)
-                colorPop.tag = row
-                colorPop.target = self
-                colorPop.action = #selector(onTableRowOnColorChanged(_:))
-
-                let colors = LedColor.allCases
-                colorPop.addItems(withTitles: colors.map { $0.rawValue })
-                let current = outMap?.onColor ?? .on
-                if let idx = colors.firstIndex(of: current) {
-                    colorPop.selectItem(at: idx)
-                }
-                return colorPop
+                let numField = NSTextField()
+                numField.controlSize = .small
+                numField.font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .bold)
+                numField.alignment = .center
+                numField.tag = row
+                numField.placeholderString = "127"
+                numField.stringValue = "\(outMap?.onValue ?? 127)"
+                numField.textColor = NSColor.systemYellow
+                numField.target = self
+                numField.action = #selector(onTableRowOnValueChanged(_:))
+                return numField
             } else if cellId == "OffColor" {
-                let colorPop = NSPopUpButton(frame: .zero, pullsDown: false)
-                colorPop.controlSize = .small
-                colorPop.font = NSFont.systemFont(ofSize: 10, weight: .medium)
-                colorPop.tag = row
-                colorPop.target = self
-                colorPop.action = #selector(onTableRowOffColorChanged(_:))
-
-                let colors = LedColor.allCases
-                colorPop.addItems(withTitles: colors.map { $0.rawValue })
-                let current = outMap?.offColor ?? .off
-                if let idx = colors.firstIndex(of: current) {
-                    colorPop.selectItem(at: idx)
-                }
-                return colorPop
+                let numField = NSTextField()
+                numField.controlSize = .small
+                numField.font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .bold)
+                numField.alignment = .center
+                numField.tag = row
+                numField.placeholderString = "0"
+                numField.stringValue = "\(outMap?.offValue ?? 0)"
+                numField.textColor = NSColor(white: 0.65, alpha: 1.0)
+                numField.target = self
+                numField.action = #selector(onTableRowOffValueChanged(_:))
+                return numField
             } else if cellId == "TestLed" {
                 let btn = NSButton(title: "Test", target: self, action: #selector(onTableRowTestLedClicked(_:)))
                 btn.tag = row
@@ -1007,34 +1001,42 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
         ControllerManagerRefs.mappingTableView?.reloadData()
     }
 
-    @objc func onTableRowOnColorChanged(_ sender: NSPopUpButton) {
+    @objc func onTableRowOnValueChanged(_ sender: NSTextField) {
         let row = sender.tag
         guard row < ControllerManagerRefs.outMappingRows.count else { return }
         let target = ControllerManagerRefs.outMappingRows[row]
-        let colors = LedColor.allCases
-        let selectedColor = colors[min(max(0, sender.indexOfSelectedItem), colors.count - 1)]
+        let text = sender.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard let val = UInt8(text), val <= 127 else {
+            sender.stringValue = "127"
+            return
+        }
 
         let learn = RaneMidiLearnService.shared
         var existing = learn.outMappingFor(target: target) ?? MidiOutMapping(type: .note, number: 0, channel: 0)
-        existing.onColor = selectedColor
+        existing.onValue = val
         learn.setOutMapping(for: target, mapping: existing)
-        appendMidiLog("Controller Manager Out: [\(target.displayName)] ON Farbe -> [\(selectedColor.rawValue)]")
+        appendMidiLog("Controller Manager Out: [\(target.displayName)] ON Wert -> [\(val)]")
         RaneFlexFxService.shared.updateHardwareLeds()
         ControllerManagerRefs.mappingTableView?.reloadData()
     }
 
-    @objc func onTableRowOffColorChanged(_ sender: NSPopUpButton) {
+    @objc func onTableRowOffValueChanged(_ sender: NSTextField) {
         let row = sender.tag
         guard row < ControllerManagerRefs.outMappingRows.count else { return }
         let target = ControllerManagerRefs.outMappingRows[row]
-        let colors = LedColor.allCases
-        let selectedColor = colors[min(max(0, sender.indexOfSelectedItem), colors.count - 1)]
+        let text = sender.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard let val = UInt8(text), val <= 127 else {
+            sender.stringValue = "0"
+            return
+        }
 
         let learn = RaneMidiLearnService.shared
         var existing = learn.outMappingFor(target: target) ?? MidiOutMapping(type: .note, number: 0, channel: 0)
-        existing.offColor = selectedColor
+        existing.offValue = val
         learn.setOutMapping(for: target, mapping: existing)
-        appendMidiLog("Controller Manager Out: [\(target.displayName)] OFF Farbe -> [\(selectedColor.rawValue)]")
+        appendMidiLog("Controller Manager Out: [\(target.displayName)] OFF Wert -> [\(val)]")
         RaneFlexFxService.shared.updateHardwareLeds()
         ControllerManagerRefs.mappingTableView?.reloadData()
     }
@@ -1052,12 +1054,12 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
         }
 
         let ch = (outMap.channel == 255) ? 0 : outMap.channel
-        let vel = outMap.onColor.onVelocity
+        let vel = outMap.onValue
         if outMap.type == .note {
             midi.sendNoteOn(note: outMap.number, velocity: vel, channel: ch)
             appendMidiLog("LED Test: Note ON \(outMap.number) Vel=\(vel) Ch=\(ch + 1) gesendet")
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-                let offVel = outMap.offColor.offVelocity
+                let offVel = outMap.offValue
                 if offVel > 0 {
                     midi.sendNoteOn(note: outMap.number, velocity: offVel, channel: ch)
                 } else {
@@ -1068,7 +1070,7 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
             midi.sendCC(cc: outMap.number, value: vel, channel: ch)
             appendMidiLog("LED Test: CC #\(outMap.number) Val=\(vel) Ch=\(ch + 1) gesendet")
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-                let offVel = outMap.offColor.offVelocity
+                let offVel = outMap.offValue
                 midi.sendCC(cc: outMap.number, value: offVel, channel: ch)
             }
         }
