@@ -630,6 +630,26 @@ public class RaneMidiLearnService {
                     continue
                 }
 
+                // If it's a button configured as Toggle or Trigger (or a direct select button like FX selection),
+                // ignore button release (Note-Off / velocity 0) so we only trigger once on press!
+                if mapping.interactionType == .button {
+                    if (mapping.buttonMode == .toggle || mapping.buttonMode == .trigger) && !isPressed {
+                        handled = true
+                        continue
+                    }
+                    // For direct selectors (e.g. fxFilter, fxFlanger, fxPhaser, fxEcho, fxDubDelay, fxReverb, prevBeat, nextBeat)
+                    // ignore release as well so it doesn't trigger actions twice
+                    switch target {
+                    case .fxFilter, .fxFlanger, .fxPhaser, .fxEcho, .fxDubDelay, .fxReverb, .prevBeat, .nextBeat:
+                        if !isPressed {
+                            handled = true
+                            continue
+                        }
+                    default:
+                        break
+                    }
+                }
+
                 handled = true
                 let normVal = Float(d2) / 127.0
                 let iType = mapping.interactionType
