@@ -13,6 +13,8 @@ extension MainWindowController {
                 if connected {
                     self.appendMidiLog(Localization.tr(en: "● CoreMIDI & USB connection active. Sixty-Eight is ready.", de: "● CoreMIDI & USB-Verbindung aktiv. Sixty-Eight ist betriebsbereit."))
                     self.refreshStatus()
+                    // Initialize clean slate: all LEDs OFF on connect
+                    RaneMidiService.shared.resetAllHardwareLeds()
                     RaneMidiService.shared.requestHardwareDump()
                     RaneFlexFxService.shared.updateHardwareLeds()
                     RaneFlexFxService.shared.checkAndUpdateAudioDevice()

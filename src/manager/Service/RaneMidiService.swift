@@ -295,6 +295,27 @@ class RaneMidiService {
         MIDISend(outPort, destEndpoint, &list)
     }
 
+    /// Turns off all hardware LEDs across all MIDI notes and channels (0..127) as an initial clean slate
+    func resetAllHardwareLeds() {
+        guard isConnected else { return }
+        if destEndpoint == 0 { connectEndpoints() }
+        guard destEndpoint != 0 else { return }
+
+        // Turn off all standard MIDI notes (0..127) on Channel 0 (and common control channels)
+        for note in UInt8(0)...UInt8(127) {
+            sendNoteOff(note: note, channel: 0)
+        }
+        for ch in UInt8(1)...UInt8(3) {
+            for note in [UInt8(62), UInt8(65), UInt8(66), UInt8(67), UInt8(68), UInt8(69), UInt8(70), UInt8(71)] {
+                sendNoteOff(note: note, channel: ch)
+            }
+        }
+        // Turn off cue & flexfx CCs
+        for cc in [UInt8(0), UInt8(4), UInt8(5), UInt8(8), UInt8(9), UInt8(10), UInt8(11), UInt8(12), UInt8(13), UInt8(14), UInt8(15), UInt8(40), UInt8(41), UInt8(56), UInt8(62), UInt8(65), UInt8(66), UInt8(67), UInt8(68), UInt8(69), UInt8(70), UInt8(71)] {
+            sendCC(cc: cc, value: 0, channel: 0)
+        }
+    }
+
     func sendSysEx(_ bytes: [UInt8]) {
         guard destEndpoint != 0, isEndpointOnline(destEndpoint), !bytes.isEmpty else { return }
 
