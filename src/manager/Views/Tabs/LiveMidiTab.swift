@@ -1,89 +1,346 @@
 /* SPDX-License-Identifier: MIT */
-/* LiveMidiTab.swift - Tab 3: MIDI channel routing and live event monitor */
+/* LiveMidiTab.swift - Tab 3: Traktor-Style Controller Manager, MIDI Filter / Blacklist & Live Event Monitor */
 
 import Cocoa
 
-extension MainWindowController {
+extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
+
+    // Persistent Table & Filter References
+    private struct ControllerManagerRefs {
+        static var mappingTableView: NSTableView?
+        static var filterTableView: NSTableView?
+
+        static var filterTypePopup: NSPopUpButton?
+        static var filterNumberField: NSTextField?
+        static var filterChannelPopup: NSPopUpButton?
+        static var filterLabelField: NSTextField?
+
+        static var mappingRows: [FlexFxMidiTarget] = [
+            .modulePower,
+            .fxToggle,
+            .fxFilter,
+            .fxFlanger,
+            .fxPhaser,
+            .fxEcho,
+            .fxRobot,
+            .fxReverb,
+            .prevBeat,
+            .nextBeat,
+            .dryWet,
+            .depth,
+            .prePost
+        ]
+    }
+
     func buildMidiPage() -> NSView {
         let page = NSStackView()
         page.orientation = .vertical
         page.alignment = .leading
-        page.spacing = 10
+        page.spacing = 8
         page.edgeInsets = NSEdgeInsets(top: 2, left: 0, bottom: 2, right: 0)
 
+        // =========================================================================
+        // SECTION 1: TRAKTOR CONTROLLER MANAGER MAPPING TABLE
+        // =========================================================================
         let sec1Outer = NSStackView()
         sec1Outer.orientation = .vertical
         sec1Outer.alignment = .leading
-        sec1Outer.spacing = 10
+        sec1Outer.spacing = 6
 
-        let sec1TopBar = createSectionTopBar(
-            icon: "pianokeys",
-            title: Localization.tr(en: "CoreMIDI Channel Configuration", de: "CoreMIDI Kanal-Konfiguration"),
-            tintColor: .systemPurple
-        )
+        let sec1TopBar = NSStackView()
+        sec1TopBar.orientation = .horizontal
+        sec1TopBar.alignment = .centerY
+        sec1TopBar.spacing = 8
+        sec1TopBar.translatesAutoresizingMaskIntoConstraints = false
+
+        let iconView = NSImageView()
+        if let img = NSImage(systemSymbolName: "slider.horizontal.2.square", accessibilityDescription: nil) {
+            iconView.image = img.withSymbolConfiguration(.init(pointSize: 13, weight: .semibold))
+        }
+        iconView.contentTintColor = .systemOrange
+        sec1TopBar.addArrangedSubview(iconView)
+
+        let titleLabel = NSTextField(labelWithString: Localization.tr(
+            en: "Controller Manager",
+            de: "Controller Manager"
+        ))
+        titleLabel.font = NSFont.systemFont(ofSize: 12, weight: .bold)
+        titleLabel.textColor = NSColor(white: 0.92, alpha: 1.0)
+        sec1TopBar.addArrangedSubview(titleLabel)
+
+        let spacer1 = NSView()
+        spacer1.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        sec1TopBar.addArrangedSubview(spacer1)
+
+        let clearAllBtn = NSButton(title: "✕ Reset All", target: self, action: #selector(onClearAllMappingsClicked))
+        clearAllBtn.bezelStyle = .inline
+        clearAllBtn.font = NSFont.systemFont(ofSize: 10, weight: .bold)
+        clearAllBtn.wantsLayer = true
+        clearAllBtn.layer?.cornerRadius = 4
+        clearAllBtn.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.20).cgColor
+        clearAllBtn.layer?.borderColor = NSColor.systemRed.withAlphaComponent(0.6).cgColor
+        clearAllBtn.layer?.borderWidth = 1.0
+        clearAllBtn.contentTintColor = NSColor.systemRed
+        sec1TopBar.addArrangedSubview(clearAllBtn)
+
         sec1Outer.addArrangedSubview(sec1TopBar)
+        sec1TopBar.widthAnchor.constraint(equalTo: sec1Outer.widthAnchor).isActive = true
 
-        let configStack = NSStackView()
-        configStack.orientation = .horizontal
-        configStack.spacing = 32
+        // Mapping Table View
+        let tableScroll = NSScrollView()
+        tableScroll.hasVerticalScroller = true
+        tableScroll.hasHorizontalScroller = false
+        tableScroll.autohidesScrollers = true
+        tableScroll.borderType = .noBorder
+        tableScroll.drawsBackground = false
+        tableScroll.translatesAutoresizingMaskIntoConstraints = false
 
-        let outStack = NSStackView()
-        outStack.orientation = .horizontal
-        outStack.spacing = 10
-        let outLbl = NSTextField(labelWithString: Localization.tr(en: "MIDI Out Channel:", de: "MIDI Out Kanal:"))
-        outLbl.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
-        let ch1Title = Localization.tr(en: "Channel 1", de: "Kanal 1")
-        midiOutPopup = NSPopUpButton(title: ch1Title, target: self, action: #selector(onMidiChannelChanged))
-        var midiChs = (1...16).map { Localization.tr(en: "Channel \($0)", de: "Kanal \($0)") }
-        let offTitle = Localization.tr(en: "OFF (Disabled)", de: "OFF (Aus)")
-        midiChs.append(offTitle)
-        midiOutPopup.addItems(withTitles: midiChs)
-        midiOutPopup.selectItem(at: 0)
-        outStack.addArrangedSubview(outLbl)
-        outStack.addArrangedSubview(midiOutPopup)
+        let tableView = NSTableView()
+        tableView.identifier = NSUserInterfaceItemIdentifier("MappingTable")
+        tableView.headerView = NSTableHeaderView()
+        tableView.usesAlternatingRowBackgroundColors = true
+        tableView.rowHeight = 24
+        tableView.gridStyleMask = [.solidHorizontalGridLineMask]
+        tableView.gridColor = NSColor(white: 0.22, alpha: 0.8)
+        tableView.backgroundColor = NSColor(red: 0.12, green: 0.125, blue: 0.14, alpha: 1.0)
 
-        let inStack = NSStackView()
-        inStack.orientation = .horizontal
-        inStack.spacing = 10
-        let inLbl = NSTextField(labelWithString: Localization.tr(en: "MIDI In Channel:", de: "MIDI In Kanal:"))
-        inLbl.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
-        midiInPopup = NSPopUpButton(title: offTitle, target: self, action: #selector(onMidiChannelChanged))
-        midiInPopup.addItems(withTitles: midiChs)
-        midiInPopup.selectItem(withTitle: offTitle)
-        inStack.addArrangedSubview(inLbl)
-        inStack.addArrangedSubview(midiInPopup)
+        let colControl = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("Control"))
+        colControl.title = "Control (Target)"
+        colControl.width = 130
+        tableView.addTableColumn(colControl)
 
-        configStack.addArrangedSubview(outStack)
-        configStack.addArrangedSubview(inStack)
+        let colType = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("Type"))
+        colType.title = "Type (Interaction)"
+        colType.width = 110
+        tableView.addTableColumn(colType)
 
-        let topCard = configStack.wrapInCard(
-            cornerRadius: 10,
+        let colOption = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("Option"))
+        colOption.title = "Option (Mode)"
+        colOption.width = 95
+        tableView.addTableColumn(colOption)
+
+        let colMidi = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("Midi"))
+        colMidi.title = "Mapped MIDI (Type / # / Ch)"
+        colMidi.width = 190
+        tableView.addTableColumn(colMidi)
+
+        let colLearn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("Learn"))
+        colLearn.title = "Learn"
+        colLearn.width = 75
+        tableView.addTableColumn(colLearn)
+
+        let colReset = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("Reset"))
+        colReset.title = "Action"
+        colReset.width = 45
+        tableView.addTableColumn(colReset)
+
+        tableView.dataSource = self
+        tableView.delegate = self
+        tableScroll.documentView = tableView
+        ControllerManagerRefs.mappingTableView = tableView
+
+        let tableCard = tableScroll.wrapInCard(
+            cornerRadius: 8,
             borderColor: NSColor(white: 0.28, alpha: 0.45),
-            fillColor: NSColor(red: 0.176, green: 0.180, blue: 0.200, alpha: 1.0),
-            padding: NSEdgeInsets(top: 12, left: 16, bottom: 12, right: 16)
+            fillColor: NSColor(red: 0.12, green: 0.125, blue: 0.14, alpha: 1.0),
+            padding: NSEdgeInsets(top: 2, left: 2, bottom: 2, right: 2)
         )
-        sec1Outer.addArrangedSubview(topCard)
-        topCard.widthAnchor.constraint(equalTo: sec1Outer.widthAnchor).isActive = true
+        sec1Outer.addArrangedSubview(tableCard)
+        tableCard.widthAnchor.constraint(equalTo: sec1Outer.widthAnchor).isActive = true
+        tableScroll.heightAnchor.constraint(equalToConstant: 185).isActive = true
 
         let sec1Inset = sec1Outer.wrapInInsetCard(
             cornerRadius: 12,
-            padding: NSEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
+            padding: NSEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
         )
         page.addArrangedSubview(sec1Inset)
         sec1Inset.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
 
-        // Live Monitor Section
+        // =========================================================================
+        // SECTION 2: MIDI INPUT FILTER & BLACKLIST (Block Faders, CCs, Notes)
+        // =========================================================================
         let sec2Outer = NSStackView()
         sec2Outer.orientation = .vertical
         sec2Outer.alignment = .leading
-        sec2Outer.spacing = 10
+        sec2Outer.spacing = 6
 
-        let sec2TopBar = createSectionTopBar(
+        let sec2TopBar = NSStackView()
+        sec2TopBar.orientation = .horizontal
+        sec2TopBar.alignment = .centerY
+        sec2TopBar.spacing = 8
+        sec2TopBar.translatesAutoresizingMaskIntoConstraints = false
+
+        let filterIconView = NSImageView()
+        if let img = NSImage(systemSymbolName: "line.3.horizontal.decrease.circle", accessibilityDescription: nil) {
+            filterIconView.image = img.withSymbolConfiguration(.init(pointSize: 13, weight: .semibold))
+        }
+        filterIconView.contentTintColor = .systemTeal
+        sec2TopBar.addArrangedSubview(filterIconView)
+
+        let filterTitle = NSTextField(labelWithString: Localization.tr(
+            en: "MIDI Input Filter / Blacklist (Fader & Störsignal-Filter)",
+            de: "MIDI Input Filter / Blacklist (Fader & Störsignal-Filter)"
+        ))
+        filterTitle.font = NSFont.systemFont(ofSize: 12, weight: .bold)
+        filterTitle.textColor = NSColor(white: 0.92, alpha: 1.0)
+        sec2TopBar.addArrangedSubview(filterTitle)
+
+        let fSpacer = NSView()
+        fSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        sec2TopBar.addArrangedSubview(fSpacer)
+
+        let presetFadersBtn = NSButton(title: "⚡ Filter Sixty-Eight Faders", target: self, action: #selector(onFilterPresetFadersClicked))
+        presetFadersBtn.bezelStyle = .inline
+        presetFadersBtn.font = NSFont.systemFont(ofSize: 10, weight: .bold)
+        presetFadersBtn.wantsLayer = true
+        presetFadersBtn.layer?.cornerRadius = 4
+        presetFadersBtn.layer?.backgroundColor = NSColor.systemTeal.withAlphaComponent(0.20).cgColor
+        presetFadersBtn.layer?.borderColor = NSColor.systemTeal.withAlphaComponent(0.6).cgColor
+        presetFadersBtn.layer?.borderWidth = 1.0
+        presetFadersBtn.contentTintColor = NSColor.systemTeal
+        sec2TopBar.addArrangedSubview(presetFadersBtn)
+
+        let clearFilterBtn = NSButton(title: "✕ Reset Filter", target: self, action: #selector(onClearAllFiltersClicked))
+        clearFilterBtn.bezelStyle = .inline
+        clearFilterBtn.font = NSFont.systemFont(ofSize: 10, weight: .bold)
+        clearFilterBtn.wantsLayer = true
+        clearFilterBtn.layer?.cornerRadius = 4
+        clearFilterBtn.layer?.backgroundColor = NSColor(white: 0.22, alpha: 0.6).cgColor
+        clearFilterBtn.contentTintColor = NSColor(white: 0.8, alpha: 1.0)
+        sec2TopBar.addArrangedSubview(clearFilterBtn)
+
+        sec2Outer.addArrangedSubview(sec2TopBar)
+        sec2TopBar.widthAnchor.constraint(equalTo: sec2Outer.widthAnchor).isActive = true
+
+        // Filter Input Bar (Add custom rule)
+        let addRuleBar = NSStackView()
+        addRuleBar.orientation = .horizontal
+        addRuleBar.alignment = .centerY
+        addRuleBar.spacing = 8
+
+        let typePop = NSPopUpButton(title: "CC #", target: nil, action: nil)
+        typePop.addItems(withTitles: ["CC #", "Note"])
+        typePop.controlSize = .small
+        addRuleBar.addArrangedSubview(typePop)
+        ControllerManagerRefs.filterTypePopup = typePop
+
+        let numField = NSTextField(string: "112")
+        numField.placeholderString = "Nr. (0..127)"
+        numField.controlSize = .small
+        numField.alignment = .center
+        numField.translatesAutoresizingMaskIntoConstraints = false
+        numField.widthAnchor.constraint(equalToConstant: 75).isActive = true
+        addRuleBar.addArrangedSubview(numField)
+        ControllerManagerRefs.filterNumberField = numField
+
+        let chPop = NSPopUpButton(title: "All Channels", target: nil, action: nil)
+        var chTitles = ["All Channels"]
+        for c in 1...16 { chTitles.append("Ch \(c)") }
+        chPop.addItems(withTitles: chTitles)
+        chPop.controlSize = .small
+        addRuleBar.addArrangedSubview(chPop)
+        ControllerManagerRefs.filterChannelPopup = chPop
+
+        let labelField = NSTextField(string: "")
+        labelField.placeholderString = "Bezeichnung (z. B. Mixer Fader)"
+        labelField.controlSize = .small
+        labelField.translatesAutoresizingMaskIntoConstraints = false
+        labelField.widthAnchor.constraint(equalToConstant: 160).isActive = true
+        addRuleBar.addArrangedSubview(labelField)
+        ControllerManagerRefs.filterLabelField = labelField
+
+        let addBtn = NSButton(title: "+ Add Filter", target: self, action: #selector(onAddFilterRuleClicked))
+        addBtn.bezelStyle = .inline
+        addBtn.font = NSFont.systemFont(ofSize: 10, weight: .bold)
+        addBtn.wantsLayer = true
+        addBtn.layer?.cornerRadius = 4
+        addBtn.layer?.backgroundColor = NSColor.systemIndigo.withAlphaComponent(0.3).cgColor
+        addBtn.layer?.borderColor = NSColor.systemIndigo.cgColor
+        addBtn.layer?.borderWidth = 1.0
+        addBtn.contentTintColor = NSColor.systemIndigo
+        addRuleBar.addArrangedSubview(addBtn)
+
+        sec2Outer.addArrangedSubview(addRuleBar)
+
+        // Filter Table View
+        let filterScroll = NSScrollView()
+        filterScroll.hasVerticalScroller = true
+        filterScroll.hasHorizontalScroller = false
+        filterScroll.autohidesScrollers = true
+        filterScroll.borderType = .noBorder
+        filterScroll.drawsBackground = false
+        filterScroll.translatesAutoresizingMaskIntoConstraints = false
+
+        let fTableView = NSTableView()
+        fTableView.identifier = NSUserInterfaceItemIdentifier("FilterTable")
+        fTableView.headerView = NSTableHeaderView()
+        fTableView.usesAlternatingRowBackgroundColors = true
+        fTableView.rowHeight = 19
+        fTableView.gridStyleMask = [.solidHorizontalGridLineMask]
+        fTableView.gridColor = NSColor(white: 0.20, alpha: 0.8)
+        fTableView.backgroundColor = NSColor(red: 0.11, green: 0.115, blue: 0.13, alpha: 1.0)
+
+        let colFilterType = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("FType"))
+        colFilterType.title = "Message"
+        colFilterType.width = 90
+        fTableView.addTableColumn(colFilterType)
+
+        let colFilterNum = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("FNum"))
+        colFilterNum.title = "Number"
+        colFilterNum.width = 70
+        fTableView.addTableColumn(colFilterNum)
+
+        let colFilterCh = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("FCh"))
+        colFilterCh.title = "Channel"
+        colFilterCh.width = 90
+        fTableView.addTableColumn(colFilterCh)
+
+        let colFilterDesc = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("FDesc"))
+        colFilterDesc.title = "Description / Label"
+        colFilterDesc.width = 210
+        fTableView.addTableColumn(colFilterDesc)
+
+        let colFilterAction = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("FAction"))
+        colFilterAction.title = "Action"
+        colFilterAction.width = 65
+        fTableView.addTableColumn(colFilterAction)
+
+        fTableView.dataSource = self
+        fTableView.delegate = self
+        filterScroll.documentView = fTableView
+        ControllerManagerRefs.filterTableView = fTableView
+
+        let fTableCard = filterScroll.wrapInCard(
+            cornerRadius: 8,
+            borderColor: NSColor(white: 0.28, alpha: 0.45),
+            fillColor: NSColor(red: 0.11, green: 0.115, blue: 0.13, alpha: 1.0),
+            padding: NSEdgeInsets(top: 2, left: 2, bottom: 2, right: 2)
+        )
+        sec2Outer.addArrangedSubview(fTableCard)
+        fTableCard.widthAnchor.constraint(equalTo: sec2Outer.widthAnchor).isActive = true
+        filterScroll.heightAnchor.constraint(equalToConstant: 105).isActive = true
+
+        let sec2Inset = sec2Outer.wrapInInsetCard(
+            cornerRadius: 12,
+            padding: NSEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
+        )
+        page.addArrangedSubview(sec2Inset)
+        sec2Inset.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
+
+        // =========================================================================
+        // SECTION 3: LIVE MONITOR
+        // =========================================================================
+        let sec3Outer = NSStackView()
+        sec3Outer.orientation = .vertical
+        sec3Outer.alignment = .leading
+        sec3Outer.spacing = 6
+
+        let sec3TopBar = createSectionTopBar(
             icon: "terminal",
             title: Localization.tr(en: "Live MIDI Event Stream (Bidirectional)", de: "Live MIDI Event Stream (Bidirektional)"),
             tintColor: .systemGreen
         )
-        sec2Outer.addArrangedSubview(sec2TopBar)
+        sec3Outer.addArrangedSubview(sec3TopBar)
 
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
@@ -116,28 +373,470 @@ extension MainWindowController {
             fillColor: NSColor(red: 0.10, green: 0.105, blue: 0.12, alpha: 1.0),
             padding: NSEdgeInsets(top: 4, left: 4, bottom: 4, right: 4)
         )
-        sec2Outer.addArrangedSubview(innerScrollCard)
-        innerScrollCard.widthAnchor.constraint(equalTo: sec2Outer.widthAnchor).isActive = true
+        sec3Outer.addArrangedSubview(innerScrollCard)
+        innerScrollCard.widthAnchor.constraint(equalTo: sec3Outer.widthAnchor).isActive = true
+        scroll.heightAnchor.constraint(equalToConstant: 95).isActive = true
 
-        let sec2Inset = sec2Outer.wrapInInsetCard(
+        let sec3Inset = sec3Outer.wrapInInsetCard(
             cornerRadius: 12,
-            padding: NSEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
+            padding: NSEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
         )
-        page.addArrangedSubview(sec2Inset)
-        sec2Inset.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
-        scroll.heightAnchor.constraint(equalToConstant: 180).isActive = true
+        page.addArrangedSubview(sec3Inset)
+        sec3Inset.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
 
-        let bottomSpacer = NSView()
-        bottomSpacer.setContentHuggingPriority(.defaultLow, for: .vertical)
-        page.addArrangedSubview(bottomSpacer)
+        setupControllerManagerCallbacks()
 
         return page
     }
 
-    // MARK: - Action Handlers (Tab 3)
+    // MARK: - Controller Manager & Filter Callbacks
+    private func setupControllerManagerCallbacks() {
+        let learn = RaneMidiLearnService.shared
+        let originalOnUpdated = learn.onMappingUpdated
+        learn.onMappingUpdated = {
+            originalOnUpdated?()
+            DispatchQueue.main.async {
+                ControllerManagerRefs.mappingTableView?.reloadData()
+            }
+        }
+
+        let originalOnTargetChanged = learn.onSelectedTargetChanged
+        learn.onSelectedTargetChanged = { target in
+            originalOnTargetChanged?(target)
+            DispatchQueue.main.async {
+                ControllerManagerRefs.mappingTableView?.reloadData()
+            }
+        }
+
+        let originalOnFilterUpdated = learn.onFilterRulesUpdated
+        learn.onFilterRulesUpdated = {
+            originalOnFilterUpdated?()
+            DispatchQueue.main.async {
+                ControllerManagerRefs.filterTableView?.reloadData()
+            }
+        }
+    }
+
+    // MARK: - NSTableViewDataSource & NSTableViewDelegate
+    public func numberOfRows(in tableView: NSTableView) -> Int {
+        if tableView.identifier?.rawValue == "FilterTable" {
+            return RaneMidiLearnService.shared.filterRules.count
+        }
+        return ControllerManagerRefs.mappingRows.count
+    }
+
+    public func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard let col = tableColumn else { return nil }
+
+        // FILTER TABLE
+        if tableView.identifier?.rawValue == "FilterTable" {
+            let rules = RaneMidiLearnService.shared.filterRules
+            guard row < rules.count else { return nil }
+            let rule = rules[row]
+            let cellId = col.identifier.rawValue
+
+            if cellId == "FType" {
+                let lbl = NSTextField(labelWithString: rule.type == .cc ? "Control Change" : "Note On/Off")
+                lbl.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+                lbl.textColor = rule.type == .cc ? NSColor.systemTeal : NSColor.systemPurple
+                return lbl
+            } else if cellId == "FNum" {
+                let lbl = NSTextField(labelWithString: "\(rule.number)")
+                lbl.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .bold)
+                lbl.textColor = NSColor.white
+                return lbl
+            } else if cellId == "FCh" {
+                let chStr = (rule.channel == 255) ? "All" : "Ch \(rule.channel + 1)"
+                let lbl = NSTextField(labelWithString: chStr)
+                lbl.font = NSFont.systemFont(ofSize: 11, weight: .regular)
+                lbl.textColor = NSColor(white: 0.75, alpha: 1.0)
+                return lbl
+            } else if cellId == "FDesc" {
+                let lbl = NSTextField(labelWithString: rule.label.isEmpty ? "Blacklist Rule" : rule.label)
+                lbl.font = NSFont.systemFont(ofSize: 11, weight: .regular)
+                lbl.textColor = NSColor(white: 0.65, alpha: 1.0)
+                return lbl
+            } else if cellId == "FAction" {
+                let btn = NSButton(title: "Remove", target: self, action: #selector(onRemoveFilterRuleClicked(_:)))
+                btn.tag = row
+                btn.bezelStyle = .inline
+                btn.font = NSFont.systemFont(ofSize: 10, weight: .regular)
+                btn.wantsLayer = true
+                btn.layer?.cornerRadius = 4
+                btn.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.20).cgColor
+                btn.layer?.borderColor = NSColor.systemRed.withAlphaComponent(0.5).cgColor
+                btn.layer?.borderWidth = 1.0
+                btn.contentTintColor = NSColor.systemRed
+                return btn
+            }
+            return nil
+        }
+
+        // MAPPING TABLE
+        guard row < ControllerManagerRefs.mappingRows.count else { return nil }
+        let target = ControllerManagerRefs.mappingRows[row]
+        let learn = RaneMidiLearnService.shared
+        let mapping = learn.mappingFor(target: target)
+        let isLearningThis = (learn.isLearnModeActive && learn.selectedTarget == target)
+
+        let cellId = col.identifier.rawValue
+
+        if cellId == "Control" {
+            let label = NSTextField(labelWithString: target.displayName)
+            label.font = NSFont.systemFont(ofSize: 11, weight: .bold)
+            label.textColor = isLearningThis ? NSColor.systemYellow : NSColor.white
+            return label
+        } else if cellId == "Type" {
+            let typePopup = NSPopUpButton(frame: .zero, pullsDown: false)
+            typePopup.controlSize = .small
+            typePopup.font = NSFont.systemFont(ofSize: 10, weight: .medium)
+            typePopup.tag = row
+            typePopup.target = self
+            typePopup.action = #selector(onTableRowTypeChanged(_:))
+
+            let types = ControlInteractionType.allCases
+            typePopup.addItems(withTitles: types.map { $0.rawValue })
+
+            let currentType = mapping?.interactionType ?? ((target == .dryWet || target == .depth) ? .faderKnob : .button)
+            if let idx = types.firstIndex(of: currentType) {
+                typePopup.selectItem(at: idx)
+            }
+            return typePopup
+        } else if cellId == "Option" {
+            let currentType = mapping?.interactionType ?? ((target == .dryWet || target == .depth) ? .faderKnob : .button)
+            if currentType == .button {
+                let optPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+                optPopup.controlSize = .small
+                optPopup.font = NSFont.systemFont(ofSize: 10, weight: .medium)
+                optPopup.tag = row
+                optPopup.target = self
+                optPopup.action = #selector(onTableRowOptionChanged(_:))
+
+                let modes = ButtonMode.allCases
+                optPopup.addItems(withTitles: modes.map { $0.rawValue })
+                let currentMode = mapping?.buttonMode ?? .toggle
+                if let idx = modes.firstIndex(of: currentMode) {
+                    optPopup.selectItem(at: idx)
+                }
+                return optPopup
+            } else {
+                let lbl = NSTextField(labelWithString: "—")
+                lbl.alignment = .center
+                lbl.font = NSFont.systemFont(ofSize: 10, weight: .regular)
+                lbl.textColor = NSColor(white: 0.40, alpha: 1.0)
+                return lbl
+            }
+        } else if cellId == "Midi" {
+            let stack = NSStackView()
+            stack.orientation = .horizontal
+            stack.spacing = 4
+            stack.alignment = .centerY
+
+            // Type Popup (CC / Note)
+            let typePop = NSPopUpButton(frame: .zero, pullsDown: false)
+            typePop.controlSize = .small
+            typePop.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .semibold)
+            typePop.tag = row
+            typePop.addItems(withTitles: ["CC", "Note"])
+            typePop.selectItem(at: (mapping?.type == .note) ? 1 : 0)
+            typePop.target = self
+            typePop.action = #selector(onTableRowMidiTypeChanged(_:))
+            stack.addArrangedSubview(typePop)
+
+            // Number Field (0..127)
+            let numField = NSTextField()
+            numField.controlSize = .small
+            numField.font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .bold)
+            numField.alignment = .center
+            numField.tag = row
+            numField.placeholderString = "--"
+            if let m = mapping {
+                numField.stringValue = "\(m.number)"
+                numField.textColor = NSColor.systemGreen
+            } else {
+                numField.stringValue = ""
+                numField.textColor = NSColor(white: 0.5, alpha: 1.0)
+            }
+            numField.target = self
+            numField.action = #selector(onTableRowMidiNumberChanged(_:))
+            numField.translatesAutoresizingMaskIntoConstraints = false
+            numField.widthAnchor.constraint(equalToConstant: 40).isActive = true
+            stack.addArrangedSubview(numField)
+
+            // Channel Popup (All / Ch 1..16)
+            let chPop = NSPopUpButton(frame: .zero, pullsDown: false)
+            chPop.controlSize = .small
+            chPop.font = NSFont.systemFont(ofSize: 10, weight: .regular)
+            chPop.tag = row
+            var chTitles = ["All"]
+            for c in 1...16 { chTitles.append("Ch \(c)") }
+            chPop.addItems(withTitles: chTitles)
+            if let m = mapping {
+                chPop.selectItem(at: (m.channel == 255) ? 0 : Int(m.channel + 1))
+            } else {
+                chPop.selectItem(at: 0)
+            }
+            chPop.target = self
+            chPop.action = #selector(onTableRowMidiChannelChanged(_:))
+            stack.addArrangedSubview(chPop)
+
+            return stack
+        } else if cellId == "Learn" {
+            let btn = NSButton(
+                title: isLearningThis ? "● Learning..." : "Learn",
+                target: self,
+                action: #selector(onTableRowLearnClicked(_:))
+            )
+            btn.tag = row
+            btn.bezelStyle = .inline
+            btn.font = NSFont.systemFont(ofSize: 10, weight: .bold)
+            btn.wantsLayer = true
+            btn.layer?.cornerRadius = 4
+            if isLearningThis {
+                btn.layer?.backgroundColor = NSColor.systemPurple.cgColor
+                btn.contentTintColor = NSColor.white
+            } else {
+                btn.layer?.backgroundColor = NSColor(white: 0.22, alpha: 0.8).cgColor
+                btn.contentTintColor = NSColor.systemTeal
+            }
+            return btn
+        } else if cellId == "Reset" {
+            let btn = NSButton(title: "Clear", target: self, action: #selector(onTableRowClearClicked(_:)))
+            btn.tag = row
+            btn.bezelStyle = .inline
+            btn.font = NSFont.systemFont(ofSize: 10, weight: .regular)
+            btn.wantsLayer = true
+            btn.layer?.cornerRadius = 4
+            btn.layer?.backgroundColor = NSColor(white: 0.18, alpha: 0.7).cgColor
+            btn.contentTintColor = mapping != nil ? NSColor.systemOrange : NSColor(white: 0.4, alpha: 1.0)
+            btn.isEnabled = (mapping != nil)
+            return btn
+        }
+
+        return nil
+    }
+
+    // MARK: - Actions (Mapping Table)
+    @objc func onTableRowTypeChanged(_ sender: NSPopUpButton) {
+        let row = sender.tag
+        guard row < ControllerManagerRefs.mappingRows.count else { return }
+        let target = ControllerManagerRefs.mappingRows[row]
+        let types = ControlInteractionType.allCases
+        let selectedType = types[min(max(0, sender.indexOfSelectedItem), types.count - 1)]
+
+        let learn = RaneMidiLearnService.shared
+        if var existing = learn.mappingFor(target: target) {
+            existing.interactionType = selectedType
+            learn.setMapping(for: target, mapping: existing)
+        } else {
+            // Create initial template mapping with this interaction type
+            let defaultType: MidiMessageType = (selectedType == .button) ? .note : .cc
+            let mapping = MidiMapping(type: defaultType, number: 0, channel: 255, interactionType: selectedType)
+            learn.setMapping(for: target, mapping: mapping)
+        }
+        appendMidiLog("Controller Manager: [\(target.displayName)] Typ -> [\(selectedType.rawValue)]")
+        ControllerManagerRefs.mappingTableView?.reloadData()
+    }
+
+    @objc func onTableRowOptionChanged(_ sender: NSPopUpButton) {
+        let row = sender.tag
+        guard row < ControllerManagerRefs.mappingRows.count else { return }
+        let target = ControllerManagerRefs.mappingRows[row]
+        let modes = ButtonMode.allCases
+        let selectedMode = modes[min(max(0, sender.indexOfSelectedItem), modes.count - 1)]
+
+        let learn = RaneMidiLearnService.shared
+        if var existing = learn.mappingFor(target: target) {
+            existing.buttonMode = selectedMode
+            learn.setMapping(for: target, mapping: existing)
+        } else {
+            let mapping = MidiMapping(type: .note, number: 0, channel: 255, interactionType: .button, buttonMode: selectedMode)
+            learn.setMapping(for: target, mapping: mapping)
+        }
+        appendMidiLog("Controller Manager: [\(target.displayName)] Option (Modus) -> [\(selectedMode.rawValue)]")
+        ControllerManagerRefs.mappingTableView?.reloadData()
+    }
+
+    @objc func onTableRowMidiTypeChanged(_ sender: NSPopUpButton) {
+        let row = sender.tag
+        guard row < ControllerManagerRefs.mappingRows.count else { return }
+        let target = ControllerManagerRefs.mappingRows[row]
+        let isNote = (sender.indexOfSelectedItem == 1)
+        let newType: MidiMessageType = isNote ? .note : .cc
+
+        let learn = RaneMidiLearnService.shared
+        let existing = learn.mappingFor(target: target)
+        let num = existing?.number ?? 0
+        let ch = existing?.channel ?? 255
+        let iType = existing?.interactionType ?? (isNote ? .button : .faderKnob)
+        let bMode = existing?.buttonMode ?? .toggle
+
+        let updated = MidiMapping(type: newType, number: num, channel: ch, interactionType: iType, buttonMode: bMode)
+        learn.setMapping(for: target, mapping: updated)
+        appendMidiLog("Controller Manager: [\(target.displayName)] Nachrichtentyp -> [\(isNote ? "Note" : "CC")]")
+        ControllerManagerRefs.mappingTableView?.reloadData()
+    }
+
+    @objc func onTableRowMidiNumberChanged(_ sender: NSTextField) {
+        let row = sender.tag
+        guard row < ControllerManagerRefs.mappingRows.count else { return }
+        let target = ControllerManagerRefs.mappingRows[row]
+        let text = sender.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard let num = UInt8(text), num <= 127 else {
+            sender.stringValue = ""
+            return
+        }
+
+        let learn = RaneMidiLearnService.shared
+        let existing = learn.mappingFor(target: target)
+        let mType = existing?.type ?? .cc
+        let ch = existing?.channel ?? 255
+        let iType = existing?.interactionType ?? ((target == .dryWet || target == .depth) ? .faderKnob : .button)
+
+        let updated = MidiMapping(type: mType, number: num, channel: ch, interactionType: iType, buttonMode: existing?.buttonMode ?? .toggle)
+        learn.setMapping(for: target, mapping: updated)
+        appendMidiLog("Controller Manager: [\(target.displayName)] Nummer -> [\(num)]")
+        ControllerManagerRefs.mappingTableView?.reloadData()
+    }
+
+    @objc func onTableRowMidiChannelChanged(_ sender: NSPopUpButton) {
+        let row = sender.tag
+        guard row < ControllerManagerRefs.mappingRows.count else { return }
+        let target = ControllerManagerRefs.mappingRows[row]
+        let chIdx = sender.indexOfSelectedItem
+        let channel: UInt8 = (chIdx == 0) ? 255 : UInt8(chIdx - 1)
+
+        let learn = RaneMidiLearnService.shared
+        let existing = learn.mappingFor(target: target)
+        let mType = existing?.type ?? .cc
+        let num = existing?.number ?? 0
+        let iType = existing?.interactionType ?? ((target == .dryWet || target == .depth) ? .faderKnob : .button)
+        let bMode = existing?.buttonMode ?? .toggle
+
+        let updated = MidiMapping(type: mType, number: num, channel: channel, interactionType: iType, buttonMode: bMode)
+        learn.setMapping(for: target, mapping: updated)
+        let chDesc = (channel == 255) ? "All Channels" : "Kanal \(channel + 1)"
+        appendMidiLog("Controller Manager: [\(target.displayName)] Kanal -> [\(chDesc)]")
+        ControllerManagerRefs.mappingTableView?.reloadData()
+    }
+    @objc func onTableRowLearnClicked(_ sender: NSButton) {
+        let row = sender.tag
+        guard row < ControllerManagerRefs.mappingRows.count else { return }
+        let target = ControllerManagerRefs.mappingRows[row]
+        let learn = RaneMidiLearnService.shared
+
+        if learn.isLearnModeActive && learn.selectedTarget == target {
+            learn.isLearnModeActive = false
+            learn.selectedTarget = nil
+            appendMidiLog("MIDI Learn beendet.")
+        } else {
+            learn.isLearnModeActive = true
+            learn.selectedTarget = target
+            appendMidiLog("Controller Manager: [\(target.displayName)] im Learn-Modus – bewege jetzt Taste/Regler am Controller!")
+        }
+        ControllerManagerRefs.mappingTableView?.reloadData()
+    }
+
+    @objc func onTableRowClearClicked(_ sender: NSButton) {
+        let row = sender.tag
+        guard row < ControllerManagerRefs.mappingRows.count else { return }
+        let target = ControllerManagerRefs.mappingRows[row]
+        RaneMidiLearnService.shared.clearMapping(for: target)
+        appendMidiLog("Controller Manager: Mapping für [\(target.displayName)] gelöscht.")
+        ControllerManagerRefs.mappingTableView?.reloadData()
+    }
+
+    @objc func onClearAllMappingsClicked() {
+        RaneMidiLearnService.shared.clearAllMappings()
+        appendMidiLog("Controller Manager: Alle MIDI Mappings zurückgesetzt.")
+        ControllerManagerRefs.mappingTableView?.reloadData()
+    }
+
+    // MARK: - Actions (Filter & Blacklist)
+    @objc func onAddFilterRuleClicked() {
+        guard let numField = ControllerManagerRefs.filterNumberField,
+              let typePop = ControllerManagerRefs.filterTypePopup,
+              let chPop = ControllerManagerRefs.filterChannelPopup else { return }
+
+        let text = numField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let num = UInt8(text), num <= 127 else {
+            let alert = NSAlert()
+            alert.messageText = "Ungültige MIDI-Nummer"
+            alert.informativeText = "Bitte eine Zahl von 0 bis 127 für CC oder Note eingeben."
+            alert.runModal()
+            return
+        }
+
+        let isCC = (typePop.indexOfSelectedItem == 0)
+        let chIdx = chPop.indexOfSelectedItem
+        let channel: UInt8 = (chIdx == 0) ? 255 : UInt8(chIdx - 1)
+        let label = ControllerManagerRefs.filterLabelField?.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        let rule = MidiFilterRule(
+            type: isCC ? .cc : .note,
+            number: num,
+            channel: channel,
+            label: label
+        )
+
+        RaneMidiLearnService.shared.addFilterRule(rule)
+        appendMidiLog("MIDI Filter: Regel hinzugefügt -> [\(rule.summary)]")
+        ControllerManagerRefs.filterTableView?.reloadData()
+    }
+
+    @objc func onRemoveFilterRuleClicked(_ sender: NSButton) {
+        let row = sender.tag
+        let rules = RaneMidiLearnService.shared.filterRules
+        guard row < rules.count else { return }
+        let rule = rules[row]
+        RaneMidiLearnService.shared.removeFilterRule(id: rule.id)
+        appendMidiLog("MIDI Filter: Regel entfernt -> [\(rule.summary)]")
+        ControllerManagerRefs.filterTableView?.reloadData()
+    }
+
+    @objc func onFilterPresetFadersClicked() {
+        // Preset: Blacklist common mixer faders & switch noise CCs
+        // Channels 1..4 Faders / DIP / Crossfader: CC 112..127 and CC 21..37
+        let faderRules: [(UInt8, String)] = [
+            (21, "PGM 1 Phono Sens"),
+            (22, "PGM 1 Filter Res"),
+            (23, "PGM 1 Rec Src"),
+            (24, "PGM 2 Phono Sens"),
+            (25, "PGM 2 Filter Res"),
+            (26, "PGM 2 Rec Src"),
+            (27, "PGM 3 Phono Sens"),
+            (28, "PGM 3 Filter Res"),
+            (29, "PGM 3 Rec Src"),
+            (30, "PGM 4 Phono Sens"),
+            (31, "PGM 4 Filter Res"),
+            (32, "PGM 4 Rec Src"),
+            (112, "PGM 1 Input Select"),
+            (113, "PGM 2 Input Select"),
+            (114, "PGM 3 Input Select"),
+            (115, "PGM 4 Input Select"),
+            (120, "Crossfader A / Post"),
+            (121, "Crossfader B / Post"),
+            (122, "Crossfader PGM 3"),
+            (123, "Crossfader PGM 4")
+        ]
+
+        for (ccNum, name) in faderRules {
+            let rule = MidiFilterRule(type: .cc, number: ccNum, channel: 255, label: name)
+            RaneMidiLearnService.shared.addFilterRule(rule)
+        }
+
+        appendMidiLog("MIDI Filter: Sixty-Eight Mixer-Fader & Schalter (CC 21..32, 112..123) zur Blacklist hinzugefügt!")
+        ControllerManagerRefs.filterTableView?.reloadData()
+    }
+
+    @objc func onClearAllFiltersClicked() {
+        RaneMidiLearnService.shared.clearAllFilterRules()
+        appendMidiLog("MIDI Filter: Alle Filterregeln gelöscht.")
+        ControllerManagerRefs.filterTableView?.reloadData()
+    }
+
     @objc func onMidiChannelChanged() {
-        let outCh = midiOutPopup.indexOfSelectedItem + 1
-        let inCh = midiInPopup.indexOfSelectedItem + 1
-        appendMidiLog("MIDI Kanäle aktualisiert -> Out: \(outCh), In: \(inCh)")
+        // Handled via Presets & CoreMIDI
     }
 }

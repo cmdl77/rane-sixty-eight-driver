@@ -2,6 +2,7 @@
 /* AppDelegate.swift - Application lifecycle, menu bar, status item widget & global dialogs */
 
 import Cocoa
+import AVFoundation
 
 class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var windowController: MainWindowController?
@@ -21,6 +22,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         windowController?.window?.makeKeyAndOrderFront(nil)
         windowController?.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
+
+        // Request audio input / microphone permission for FlexFX loopback
+        if #available(macOS 10.14, *) {
+            AVCaptureDevice.requestAccess(for: .audio) { granted in
+                if granted {
+                    RaneFlexFxService.shared.startAudioEngine()
+                }
+            }
+        }
 
         statusTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             self?.updateStatusItem()

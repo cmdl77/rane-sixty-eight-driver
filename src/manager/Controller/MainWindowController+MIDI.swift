@@ -14,9 +14,12 @@ extension MainWindowController {
                     self.appendMidiLog(Localization.tr(en: "● CoreMIDI & USB connection active. Sixty-Eight is ready.", de: "● CoreMIDI & USB-Verbindung aktiv. Sixty-Eight ist betriebsbereit."))
                     self.refreshStatus()
                     RaneMidiService.shared.requestHardwareDump()
+                    RaneFlexFxService.shared.updateHardwareLeds()
+                    RaneFlexFxService.shared.checkAndUpdateAudioDevice()
                 } else {
                     self.appendMidiLog(Localization.tr(en: "● Mixer disconnected or switched off.", de: "● Mixer getrennt oder ausgeschaltet."))
                     self.refreshStatus()
+                    RaneFlexFxService.shared.checkAndUpdateAudioDevice()
                 }
             }
         }
@@ -57,8 +60,10 @@ extension MainWindowController {
             stopStressTest(userCancelled: true)
         }
 
-        // Visual Dimming for Settings Pages
-        contentContainer?.alphaValue = enabled ? 1.0 : 0.42
+        // Visual Dimming for Hardware Settings Pages (FlexFX, Live MIDI & System Status stay full brightness)
+        prefsView?.alphaValue = enabled ? 1.0 : 0.42
+        pgmView?.alphaValue = enabled ? 1.0 : 0.42
+        contentContainer?.alphaValue = 1.0
 
         // Header Status Badge
         if enabled {
@@ -85,11 +90,28 @@ extension MainWindowController {
     }
 
     func handleMidiEvent(status: UInt8, d1: UInt8, d2: UInt8) {
+        let channel = status & 0x0F
+        let typeNibble = (status & 0xF0)
+
+        // Check blacklist filter rules first
+        if typeNibble == 0xB0 {
+            if RaneMidiLearnService.shared.isMessageFiltered(type: .cc, number: d1, channel: channel) {
+                return // Filtered / Ignored!
+            }
+        } else if typeNibble == 0x90 || typeNibble == 0x80 {
+            if RaneMidiLearnService.shared.isMessageFiltered(type: .note, number: d1, channel: channel) {
+                return // Filtered / Ignored!
+            }
+        }
+
         let hex = String(format: "%02X %02X %02X", status, d1, d2)
-        let type = (status & 0xF0)
+        let type = typeNibble
 
         var desc = ""
         if type == 0xB0 { // Control Change
+            // Check if MIDI Learn handles this CC
+            let learned = RaneMidiLearnService.shared.handleIncomingMidi(status: status, d1: d1, d2: d2)
+
             pendingChangesLock.lock()
             if let pending = pendingChanges[d1] {
                 let elapsed = Date().timeIntervalSince1970 - pending.timestamp
@@ -115,11 +137,22 @@ extension MainWindowController {
             pendingChangesLock.unlock()
 
             desc = "Control Change #\(d1) = \(d2)"
+            if learned {
+                desc += " (MIDI Learn)"
+            }
             updateUiFromMidiCC(cc: d1, value: d2)
         } else if type == 0x90 {
             desc = "Note On #\(d1) Velocity=\(d2)"
+            let learned = RaneMidiLearnService.shared.handleIncomingMidi(status: status, d1: d1, d2: d2)
+            if learned {
+                desc += " (MIDI Learn)"
+            }
         } else if type == 0x80 {
             desc = "Note Off #\(d1) Velocity=\(d2)"
+            let learned = RaneMidiLearnService.shared.handleIncomingMidi(status: status, d1: d1, d2: d2)
+            if learned {
+                desc += " (MIDI Learn)"
+            }
         } else {
             desc = "MIDI Event"
         }

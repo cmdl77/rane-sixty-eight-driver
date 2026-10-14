@@ -11,10 +11,18 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     var segmentedNav: NSSegmentedControl!
     var contentContainer: NSView!
     var ioMonitorBar: RaneIOMonitorBarView!
+    var mainLayoutStack: NSStackView!
+    var headerStackView: NSStackView!
+
+    // Mini HUD Mode State
+    var isMiniHudMode: Bool = false
+    var fullWindowFrame: NSRect = .zero
+    var miniHudContainer: NSView?
 
     // Page Views
     var prefsView: NSView!
     var pgmView: NSView!
+    var flexFxView: NSView!
     var midiView: NSView!
     var systemView: NSView!
     var activePageConstraints: [NSLayoutConstraint] = []
@@ -72,7 +80,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
     // Header Badges & Controls
     var headerCpuBadge: CpuBadgeView!
-    var headerPresetButton: NSButton!
+    var headerPresetButton: NSButton?
 
     // LED Light Check
     var ledTestButton: NSButton?
@@ -112,6 +120,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         window.backgroundColor = NSColor(red: 0.137, green: 0.141, blue: 0.157, alpha: 1.0)
         window.center()
         window.minSize = NSSize(width: 880, height: 580)
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
         self.init(window: window)
         MainWindowController.shared = self
@@ -275,6 +284,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         mainStack.edgeInsets = NSEdgeInsets(top: 54, left: 38, bottom: 26, right: 38)
         mainStack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(mainStack)
+        self.mainLayoutStack = mainStack
 
         NSLayoutConstraint.activate([
             mainStack.topAnchor.constraint(equalTo: contentView.topAnchor),
@@ -338,34 +348,36 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         headerCpuBadge = CpuBadgeView()
         headerCpuBadge.onClick = { [weak self] in
             guard let self = self else { return }
-            self.segmentedNav?.selectedSegment = 3
+            self.segmentedNav?.selectedSegment = 4
             self.onTabChanged()
         }
         headerCpuBadge.update(percent: RaneCpuService.shared.systemCpuUsage)
         headerStack.addArrangedSubview(headerCpuBadge)
 
-        // Presets Menu Button
-        headerPresetButton = NSButton(title: "💾 Presets ▾", target: self, action: #selector(onHeaderPresetClicked))
-        headerPresetButton.bezelStyle = .inline
-        headerPresetButton.font = NSFont.systemFont(ofSize: 11, weight: .bold)
-        headerPresetButton.wantsLayer = true
-        headerPresetButton.layer?.cornerRadius = 6
-        headerPresetButton.layer?.backgroundColor = NSColor(white: 0.25, alpha: 0.5).cgColor
-        headerPresetButton.layer?.borderColor = NSColor(white: 0.40, alpha: 0.4).cgColor
-        headerPresetButton.layer?.borderWidth = 1.0
-        headerPresetButton.contentTintColor = NSColor.white
-        headerPresetButton.translatesAutoresizingMaskIntoConstraints = false
-        headerPresetButton.heightAnchor.constraint(equalToConstant: 24).isActive = true
-        headerStack.addArrangedSubview(headerPresetButton)
+        // Mini HUD Mode Toggle Button
+        let hudBtn = NSButton(title: "🎛 Mini-HUD ▾", target: self, action: #selector(toggleMiniHudMode))
+        hudBtn.bezelStyle = .inline
+        hudBtn.font = NSFont.systemFont(ofSize: 11, weight: .bold)
+        hudBtn.wantsLayer = true
+        hudBtn.layer?.cornerRadius = 6
+        hudBtn.layer?.backgroundColor = NSColor(red: 0.16, green: 0.32, blue: 0.48, alpha: 0.6).cgColor
+        hudBtn.layer?.borderColor = NSColor.systemTeal.withAlphaComponent(0.6).cgColor
+        hudBtn.layer?.borderWidth = 1.0
+        hudBtn.contentTintColor = NSColor.systemTeal
+        hudBtn.translatesAutoresizingMaskIntoConstraints = false
+        hudBtn.heightAnchor.constraint(equalToConstant: 24).isActive = true
+        headerStack.addArrangedSubview(hudBtn)
 
         mainStack.addArrangedSubview(headerStack)
         headerStack.centerXAnchor.constraint(equalTo: mainStack.centerXAnchor).isActive = true
+        self.headerStackView = headerStack
 
         // 2. Segmented Navigation Bar (Über die gesamte Fensterbreite mit Padding)
         segmentedNav = NSSegmentedControl(labels: [
             Localization.tr(en: "🎛 Mixer Audio", de: "🎛 Mixer Audio"),
             Localization.tr(en: "🎚 PGM Channels 1–4", de: "🎚 PGM Kanäle 1–4"),
-            Localization.tr(en: "🎹 Live MIDI", de: "🎹 Live MIDI"),
+            Localization.tr(en: "⚡️ FlexFX Engine", de: "⚡️ FlexFX Engine"),
+            Localization.tr(en: "🎹 Controller & MIDI", de: "🎹 Controller & MIDI"),
             Localization.tr(en: "⚙️ System Status", de: "⚙️ System Status")
         ], trackingMode: .selectOne, target: self, action: #selector(onTabChanged))
         segmentedNav.selectedSegment = 0
@@ -389,10 +401,11 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         // Build Pages
         prefsView = buildPreferencesPage()
         pgmView = buildPgmPage()
+        flexFxView = buildFlexFxPage()
         midiView = buildMidiPage()
         systemView = buildSystemPage()
 
-        for page in [prefsView, pgmView, midiView, systemView] {
+        for page in [prefsView, pgmView, flexFxView, midiView, systemView] {
             guard let p = page else { continue }
             p.translatesAutoresizingMaskIntoConstraints = false
             contentContainer.addSubview(p)
@@ -421,7 +434,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     // MARK: - Navigation & Dynamische Fensterhöhe
     @objc func onTabChanged() {
         let sel = segmentedNav.selectedSegment
-        let pages = [prefsView, pgmView, midiView, systemView]
+        let pages = [prefsView, pgmView, flexFxView, midiView, systemView]
 
         NSLayoutConstraint.deactivate(activePageConstraints)
         activePageConstraints.removeAll()
@@ -437,7 +450,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             }
         }
 
-        if sel == 3 {
+        if sel == 4 {
             refreshStatus()
         }
         updateWindowHeightForTab(index: sel, animated: true)
@@ -447,8 +460,9 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         switch index {
         case 0: return 715   // Mixer Audio
         case 1: return 675   // PGM Channels 1–4
-        case 2: return 695   // Live MIDI
-        case 3: return 715   // System Status
+        case 2: return 720   // FlexFX Engine
+        case 3: return 720   // Controller & MIDI
+        case 4: return 715   // System Status
         default: return 700
         }
     }
@@ -483,5 +497,258 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         let menu = buildPresetsMenu()
         let location = NSPoint(x: 0, y: sender.bounds.height + 4)
         menu.popUp(positioning: nil, at: location, in: sender)
+    }
+
+    // Dedicated Floating Mini HUD Window (Panel)
+    private var miniHudPanel: NSPanel?
+
+    // MARK: - Always-on-Top Floating Mini-Bar Mode (HUD Overlay)
+    @objc func toggleMiniHudMode() {
+        guard let window = self.window else { return }
+
+        isMiniHudMode.toggle()
+
+        if isMiniHudMode {
+            // Create or show dedicated floating HUD panel
+            if miniHudPanel == nil {
+                let screen = window.screen ?? NSScreen.main ?? NSScreen.screens[0]
+                let hudWidth: CGFloat = 950
+                let hudHeight: CGFloat = 48
+                let targetX = screen.visibleFrame.midX - (hudWidth / 2.0)
+                let targetY = screen.visibleFrame.maxY - hudHeight - 8
+                let hudFrame = NSRect(x: targetX, y: targetY, width: hudWidth, height: hudHeight)
+
+                let panel = NSPanel(
+                    contentRect: hudFrame,
+                    styleMask: [.nonactivatingPanel, .borderless],
+                    backing: .buffered,
+                    defer: false
+                )
+                panel.title = "Rane FlexFX HUD"
+                panel.isOpaque = false
+                panel.backgroundColor = .clear
+                panel.hasShadow = true
+                panel.level = NSWindow.Level(Int(CGWindowLevelForKey(.floatingWindow)) + 1)
+                panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+                panel.hidesOnDeactivate = false
+                panel.isMovableByWindowBackground = true
+
+                let hudView = createMiniHudView()
+                panel.contentView = hudView
+                self.miniHudPanel = panel
+            }
+
+            // Hide large main control panel window
+            window.orderOut(nil)
+
+            // Show HUD panel floating over Traktor / Fullscreen
+            miniHudPanel?.orderFrontRegardless()
+            updateMiniHudUI()
+        } else {
+            // Hide HUD panel and restore main control panel
+            miniHudPanel?.orderOut(nil)
+            window.makeKeyAndOrderFront(nil)
+            updateWindowHeightForTab(index: segmentedNav?.selectedSegment ?? 2, animated: false)
+        }
+    }
+
+    // References for Mini HUD live controls
+    struct MiniHudRefs {
+        static var effectBadge: NSTextField!
+        static var toggleButton: NSButton!
+        static var beatLabel: NSTextField!
+        static var bpmLabel: NSTextField!
+        static var linkBadge: NSTextField!
+        static var prePostBadge: NSButton!
+        static var dryWetLabel: NSTextField!
+        static var depthLabel: NSTextField!
+        static var sendMeter: HorizontalLedBarView!
+        static var returnMeter: HorizontalLedBarView!
+    }
+
+    private func createMiniHudView() -> NSView {
+        let bar = NSView()
+        bar.translatesAutoresizingMaskIntoConstraints = false
+        bar.wantsLayer = true
+        bar.layer?.backgroundColor = NSColor(red: 0.08, green: 0.09, blue: 0.11, alpha: 0.98).cgColor
+        bar.layer?.cornerRadius = 8
+        bar.layer?.borderWidth = 1.2
+        bar.layer?.borderColor = NSColor(red: 0.30, green: 0.36, blue: 0.45, alpha: 0.9).cgColor
+
+        let stack = NSStackView()
+        stack.orientation = .horizontal
+        stack.alignment = .centerY
+        stack.spacing = 8
+        stack.edgeInsets = NSEdgeInsets(top: 4, left: 12, bottom: 4, right: 12)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        bar.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: bar.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: bar.bottomAnchor),
+            stack.leadingAnchor.constraint(equalTo: bar.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: bar.trailingAnchor)
+        ])
+
+        // 1. Drag Handle / Brand Tag
+        let brandTag = NSTextField(labelWithString: "RANE FX")
+        brandTag.font = NSFont.systemFont(ofSize: 11, weight: .black)
+        brandTag.textColor = NSColor(white: 0.65, alpha: 1.0)
+        stack.addArrangedSubview(brandTag)
+
+        // 2. Effect Name
+        let fxName = NSTextField(labelWithString: "ECHO")
+        fxName.font = NSFont.systemFont(ofSize: 14, weight: .black)
+        fxName.textColor = NSColor(red: 1.0, green: 0.82, blue: 0.20, alpha: 1.0)
+        stack.addArrangedSubview(fxName)
+        MiniHudRefs.effectBadge = fxName
+
+        // 3. FlexFX On/Off Button
+        let onBtn = NSButton(title: "ON", target: self, action: #selector(onFlexFxToggleClicked))
+        onBtn.bezelStyle = .inline
+        onBtn.font = NSFont.systemFont(ofSize: 11, weight: .black)
+        onBtn.wantsLayer = true
+        onBtn.layer?.cornerRadius = 5
+        onBtn.layer?.borderWidth = 1.0
+        onBtn.translatesAutoresizingMaskIntoConstraints = false
+        onBtn.widthAnchor.constraint(equalToConstant: 42).isActive = true
+        onBtn.heightAnchor.constraint(equalToConstant: 24).isActive = true
+        stack.addArrangedSubview(onBtn)
+        MiniHudRefs.toggleButton = onBtn
+
+        // 4. Beat Division
+        let beatLbl = NSTextField(labelWithString: "1/2")
+        beatLbl.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
+        beatLbl.textColor = NSColor.white
+        stack.addArrangedSubview(beatLbl)
+        MiniHudRefs.beatLabel = beatLbl
+
+        // Beat buttons
+        let prevBtn = NSButton(title: "◀", target: self, action: #selector(onPrevBeatClicked))
+        prevBtn.bezelStyle = .inline
+        prevBtn.font = NSFont.systemFont(ofSize: 10, weight: .bold)
+        stack.addArrangedSubview(prevBtn)
+
+        let nextBtn = NSButton(title: "▶", target: self, action: #selector(onNextBeatClicked))
+        nextBtn.bezelStyle = .inline
+        nextBtn.font = NSFont.systemFont(ofSize: 10, weight: .bold)
+        stack.addArrangedSubview(nextBtn)
+
+        // 5. BPM Display (Handled cleanly via Ableton Link)
+        let bpmLbl = NSTextField(labelWithString: "124.0 BPM")
+        bpmLbl.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .heavy)
+        bpmLbl.textColor = NSColor(red: 0.20, green: 0.95, blue: 0.85, alpha: 1.0)
+        stack.addArrangedSubview(bpmLbl)
+        MiniHudRefs.bpmLabel = bpmLbl
+
+        // 6. Link Badge
+        let linkLbl = NSTextField(labelWithString: "● LINK: 0")
+        linkLbl.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .bold)
+        linkLbl.textColor = NSColor.systemGreen
+        stack.addArrangedSubview(linkLbl)
+        MiniHudRefs.linkBadge = linkLbl
+
+        // 7. Pre/Post Toggle Button
+        let ppBtn = NSButton(title: "POST", target: self, action: #selector(onPrePostToggled))
+        ppBtn.bezelStyle = .inline
+        ppBtn.font = NSFont.systemFont(ofSize: 10, weight: .bold)
+        ppBtn.wantsLayer = true
+        ppBtn.layer?.cornerRadius = 4
+        ppBtn.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.25).cgColor
+        ppBtn.layer?.borderColor = NSColor.systemBlue.cgColor
+        ppBtn.layer?.borderWidth = 1.0
+        ppBtn.contentTintColor = NSColor.systemBlue
+        stack.addArrangedSubview(ppBtn)
+        MiniHudRefs.prePostBadge = ppBtn
+
+        // 8. D/W & Depth Labels
+        let dwLbl = NSTextField(labelWithString: "W: 50%")
+        dwLbl.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .bold)
+        dwLbl.textColor = NSColor(red: 0.90, green: 0.92, blue: 0.95, alpha: 1.0)
+        stack.addArrangedSubview(dwLbl)
+        MiniHudRefs.dryWetLabel = dwLbl
+
+        let dpLbl = NSTextField(labelWithString: "FB: 65%")
+        dpLbl.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .bold)
+        dpLbl.textColor = NSColor(red: 0.90, green: 0.92, blue: 0.95, alpha: 1.0)
+        stack.addArrangedSubview(dpLbl)
+        MiniHudRefs.depthLabel = dpLbl
+
+        // 9. Mini Peak Meters (Send Ch 9/10 & Return Ch 9/10)
+        let metersStack = NSStackView()
+        metersStack.orientation = .vertical
+        metersStack.spacing = 2
+        metersStack.translatesAutoresizingMaskIntoConstraints = false
+        metersStack.widthAnchor.constraint(equalToConstant: 55).isActive = true
+
+        let sMeter = HorizontalLedBarView()
+        sMeter.translatesAutoresizingMaskIntoConstraints = false
+        sMeter.heightAnchor.constraint(equalToConstant: 4).isActive = true
+        metersStack.addArrangedSubview(sMeter)
+        MiniHudRefs.sendMeter = sMeter
+
+        let rMeter = HorizontalLedBarView()
+        rMeter.translatesAutoresizingMaskIntoConstraints = false
+        rMeter.heightAnchor.constraint(equalToConstant: 4).isActive = true
+        metersStack.addArrangedSubview(rMeter)
+        MiniHudRefs.returnMeter = rMeter
+
+        stack.addArrangedSubview(metersStack)
+
+        // 10. Expand Button (Back to Full Control Panel)
+        let expandBtn = NSButton(title: "⤢ FULL", target: self, action: #selector(toggleMiniHudMode))
+        expandBtn.bezelStyle = .inline
+        expandBtn.font = NSFont.systemFont(ofSize: 10, weight: .bold)
+        expandBtn.wantsLayer = true
+        expandBtn.layer?.cornerRadius = 5
+        expandBtn.layer?.backgroundColor = NSColor(white: 0.30, alpha: 0.8).cgColor
+        expandBtn.contentTintColor = NSColor.white
+        stack.addArrangedSubview(expandBtn)
+
+        return bar
+    }
+
+    func updateMiniHudUI() {
+        guard isMiniHudMode else { return }
+        let flex = RaneFlexFxService.shared
+
+        MiniHudRefs.effectBadge?.stringValue = flex.currentEffect.displayName
+        MiniHudRefs.beatLabel?.stringValue = flex.currentDivision.label
+        MiniHudRefs.bpmLabel?.stringValue = "\(String(format: "%.1f", flex.bpm)) BPM"
+        MiniHudRefs.dryWetLabel?.stringValue = "W: \(Int(flex.dryWet * 100))%"
+        MiniHudRefs.depthLabel?.stringValue = "FB: \(Int(flex.depth * 100))%"
+
+        if flex.isEnabled {
+            MiniHudRefs.toggleButton?.title = "ON"
+            MiniHudRefs.toggleButton?.layer?.backgroundColor = NSColor.systemYellow.cgColor
+            MiniHudRefs.toggleButton?.contentTintColor = NSColor.black
+        } else {
+            MiniHudRefs.toggleButton?.title = "OFF"
+            MiniHudRefs.toggleButton?.layer?.backgroundColor = NSColor(white: 0.20, alpha: 0.8).cgColor
+            MiniHudRefs.toggleButton?.contentTintColor = NSColor(white: 0.6, alpha: 1.0)
+        }
+
+        if flex.isPreFader {
+            MiniHudRefs.prePostBadge?.title = "PRE"
+            MiniHudRefs.prePostBadge?.layer?.backgroundColor = NSColor.systemOrange.withAlphaComponent(0.25).cgColor
+            MiniHudRefs.prePostBadge?.layer?.borderColor = NSColor.systemOrange.cgColor
+            MiniHudRefs.prePostBadge?.contentTintColor = NSColor.systemOrange
+        } else {
+            MiniHudRefs.prePostBadge?.title = "POST"
+            MiniHudRefs.prePostBadge?.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.25).cgColor
+            MiniHudRefs.prePostBadge?.layer?.borderColor = NSColor.systemBlue.cgColor
+            MiniHudRefs.prePostBadge?.contentTintColor = NSColor.systemBlue
+        }
+
+        if flex.isLinkEnabled {
+            MiniHudRefs.linkBadge?.stringValue = "● LINK: \(flex.linkPeers)"
+            MiniHudRefs.linkBadge?.textColor = flex.linkPeers > 0 ? NSColor.systemGreen : NSColor.systemOrange
+        } else {
+            MiniHudRefs.linkBadge?.stringValue = "○ STANDALONE"
+            MiniHudRefs.linkBadge?.textColor = NSColor(white: 0.6, alpha: 1.0)
+        }
+
+        // Live Audio Peaks
+        MiniHudRefs.sendMeter?.setLevel(linearPeak: flex.liveSendPeak, linearHold: flex.liveSendPeak, clipped: flex.liveSendPeak >= 1.0)
+        MiniHudRefs.returnMeter?.setLevel(linearPeak: flex.liveReturnPeak, linearHold: flex.liveReturnPeak, clipped: flex.liveReturnPeak >= 1.0)
     }
 }

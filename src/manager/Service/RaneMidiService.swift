@@ -14,6 +14,7 @@ class RaneMidiService {
     private var inPort: MIDIPortRef = 0
     private var destEndpoint: MIDIEndpointRef = 0
     private var srcEndpoint: MIDIEndpointRef = 0
+    private var connectedSources = Set<MIDIEndpointRef>()
 
     // USB Hardware Detection via IOHIDManager
     private var hidManager: IOHIDManager?
@@ -166,9 +167,19 @@ class RaneMidiService {
         }
 
         destEndpoint = foundDest
-        if foundSrc != 0 && foundSrc != srcEndpoint {
-            srcEndpoint = foundSrc
-            MIDIPortConnectSource(inPort, foundSrc, nil)
+
+        // Connect ALL online MIDI sources (Rane Sixty-Eight, external controllers, keyboards, Xone, etc.)
+        // so that MIDI Learn can learn from any controller seamlessly!
+        for i in 0..<numSrcs {
+            let s = MIDIGetSource(i)
+            if isEndpointOnline(s) {
+                if !connectedSources.contains(s) {
+                    let status = MIDIPortConnectSource(inPort, s, nil)
+                    if status == noErr {
+                        connectedSources.insert(s)
+                    }
+                }
+            }
         }
 
         evaluateConnectionState()
@@ -224,21 +235,14 @@ class RaneMidiService {
         if destEndpoint == 0 { connectEndpoints() }
         guard destEndpoint != 0 else { return }
 
-        // Sixty-Eight hardware firmware requires Note On with velocity 0 (0x90)
-        // to reliably clear bi-color LEDs and latched states, followed by Note Off (0x80).
         var packet = MIDIPacket()
-        packet.length = 6
+        packet.length = 3
         packet.timeStamp = 0
         let ch = channel & 0x0F
         let n = note & 0x7F
-        withUnsafeMutableBytes(of: &packet.data) { ptr in
-            ptr[0] = 0x90 | ch  // Note On with vel 0 (LED Off)
-            ptr[1] = n
-            ptr[2] = 0
-            ptr[3] = 0x80 | ch  // Note Off
-            ptr[4] = n
-            ptr[5] = 0
-        }
+        packet.data.0 = 0x80 | ch
+        packet.data.1 = n
+        packet.data.2 = 0
 
         var list = MIDIPacketList(numPackets: 1, packet: packet)
         MIDISend(outPort, destEndpoint, &list)
