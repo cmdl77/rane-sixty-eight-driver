@@ -610,13 +610,56 @@ class RaneFlexFxService {
         reverbAllpassPos = Array(repeating: 0, count: 4)
     }
 
-    // MARK: - Hardware LED Synchronization
+    // MARK: - Hardware LED Synchronization (Add Out Mapping Support)
     func updateHardwareLeds() {
         guard RaneMidiService.shared.isConnected else { return }
+        let learn = RaneMidiLearnService.shared
+        let midi = RaneMidiService.shared
+
+        // If module is disabled, set all mapped LEDs to their offColor
         if !isModuleEnabled {
             clearAllHardwareLeds()
             return
         }
+
+        let isModuleOn = isModuleEnabled
+        let isFxOn = isEnabled
+        let currentFx = currentEffect
+        let isPre = isPreFader
+
+        // Evaluate state for each target
+        let targetStates: [FlexFxMidiTarget: Bool] = [
+            .modulePower: isModuleOn,
+            .fxToggle:    isFxOn,
+            .fxFilter:    (currentFx == .filter),
+            .fxFlanger:   (currentFx == .flanger),
+            .fxPhaser:    (currentFx == .phaser),
+            .fxEcho:      (currentFx == .echo),
+            .fxDubDelay:  (currentFx == .dubDelay),
+            .fxReverb:    (currentFx == .reverb),
+            .prePost:     isPre
+        ]
+
+        // 1. Process custom Out Mappings
+        var handledNotes = Set<UInt8>()
+        for (target, state) in targetStates {
+            if let outMap = learn.outMappingFor(target: target) {
+                let ch = (outMap.channel == 255) ? 0 : outMap.channel
+                let vel = state ? outMap.onColor.onVelocity : outMap.offColor.offVelocity
+                if outMap.type == .note {
+                    handledNotes.insert(outMap.number)
+                    if vel > 0 {
+                        midi.sendNoteOn(note: outMap.number, velocity: vel, channel: ch)
+                    } else {
+                        midi.sendNoteOff(note: outMap.number, channel: ch)
+                    }
+                } else {
+                    midi.sendCC(cc: outMap.number, value: vel, channel: ch)
+                }
+            }
+        }
+
+        // 2. Fallback for Sixty-Eight default hardware LEDs if not overridden
         let fxMap: [(FlexFxType, UInt8)] = [
             (.filter, 12),
             (.flanger, 11),
@@ -626,24 +669,47 @@ class RaneFlexFxService {
             (.reverb, 8)
         ]
         for (fx, note) in fxMap {
-            if fx == currentEffect {
-                RaneMidiService.shared.sendNoteOn(note: note, velocity: 127, channel: 0)
-            } else {
-                RaneMidiService.shared.sendNoteOff(note: note, channel: 0)
+            if !handledNotes.contains(note) {
+                if fx == currentFx {
+                    midi.sendNoteOn(note: note, velocity: 127, channel: 0)
+                } else {
+                    midi.sendNoteOff(note: note, channel: 0)
+                }
             }
         }
-        if isEnabled {
-            RaneMidiService.shared.sendNoteOn(note: 0, velocity: 127, channel: 0)
-        } else {
-            RaneMidiService.shared.sendNoteOff(note: 0, channel: 0)
+        if !handledNotes.contains(0) {
+            if isFxOn {
+                midi.sendNoteOn(note: 0, velocity: 127, channel: 0)
+            } else {
+                midi.sendNoteOff(note: 0, channel: 0)
+            }
         }
     }
 
     func clearAllHardwareLeds() {
         guard RaneMidiService.shared.isConnected else { return }
-        let notesToClear: [UInt8] = [12, 11, 10, 13, 9, 8, 14, 15, 0]
+        let learn = RaneMidiLearnService.shared
+        let midi = RaneMidiService.shared
+
+        // Clear all custom configured out-mapping LEDs
+        for (_, outMap) in learn.outMappings {
+            let ch = (outMap.channel == 255) ? 0 : outMap.channel
+            let offVel = outMap.offColor.offVelocity
+            if outMap.type == .note {
+                if offVel > 0 {
+                    midi.sendNoteOn(note: outMap.number, velocity: offVel, channel: ch)
+                } else {
+                    midi.sendNoteOff(note: outMap.number, channel: ch)
+                }
+            } else {
+                midi.sendCC(cc: outMap.number, value: offVel, channel: ch)
+            }
+        }
+
+        // Also clear default hardware LEDs
+        let notesToClear: [UInt8] = [12, 11, 10, 13, 9, 8, 14, 15, 0, 19]
         for note in notesToClear {
-            RaneMidiService.shared.sendNoteOff(note: note, channel: 0)
+            midi.sendNoteOff(note: note, channel: 0)
         }
     }
 

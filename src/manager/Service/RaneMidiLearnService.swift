@@ -153,10 +153,63 @@ public struct MidiFilterRule: Codable, Equatable {
     }
 }
 
+public enum LedColor: String, Codable, CaseIterable {
+    case off    = "Off / Aus"
+    case on     = "Standard (127)"
+    case red    = "Red (Rot)"
+    case green  = "Green (Grün)"
+    case blue   = "Blue (Blau)"
+    case amber  = "Amber (Gelb/Orange)"
+    case cyan   = "Cyan (Türkis)"
+    case purple = "Purple (Lila)"
+    case white  = "White (Weiß)"
+
+    public var onVelocity: UInt8 {
+        switch self {
+        case .off:    return 0
+        case .on:     return 127
+        case .red:    return 1      // Standard MIDI controller RGB palette (Traktor/Pioneer/Akai)
+        case .amber:  return 5
+        case .green:  return 9
+        case .cyan:   return 13
+        case .blue:   return 17
+        case .purple: return 21
+        case .white:  return 25
+        }
+    }
+
+    public var offVelocity: UInt8 {
+        return 0
+    }
+}
+
+public struct MidiOutMapping: Codable, Equatable {
+    public var type: MidiMessageType
+    public var number: UInt8   // Note number (0-127) or CC number (0-127)
+    public var channel: UInt8  // 0-15 (or 255 for default ch 0)
+    public var onColor: LedColor
+    public var offColor: LedColor
+
+    public init(type: MidiMessageType = .note, number: UInt8 = 0, channel: UInt8 = 0, onColor: LedColor = .on, offColor: LedColor = .off) {
+        self.type = type
+        self.number = number
+        self.channel = channel
+        self.onColor = onColor
+        self.offColor = offColor
+    }
+
+    public var summary: String {
+        let chStr = (channel == 255) ? "Ch 1" : "Ch \(channel + 1)"
+        let tStr = (type == .note) ? "Note" : "CC #"
+        return "\(chStr) • \(tStr)\(number) [ON: \(onColor.rawValue) / OFF: \(offColor.rawValue)]"
+    }
+}
+
 public class RaneMidiLearnService {
     public static let shared = RaneMidiLearnService()
 
     private let userDefaultsKey = "RaneSixtyEight_MidiLearnMappings_v2"
+    private let outDefaultsKey = "RaneSixtyEight_MidiOutMappings_v1"
     private let filterDefaultsKey = "RaneSixtyEight_MidiFilterRules_v1"
 
     // Active MIDI Learn Mode state
@@ -181,8 +234,11 @@ public class RaneMidiLearnService {
         }
     }
 
-    // Mappings: Target -> MIDI Message
+    // Mappings: Target -> MIDI Message (In)
     private(set) var mappings: [FlexFxMidiTarget: MidiMapping] = [:]
+
+    // Out Mappings: Target -> MIDI Message & LED Colors (Out)
+    private(set) var outMappings: [FlexFxMidiTarget: MidiOutMapping] = [:]
 
     // Filtered / Blocked MIDI Rules
     private(set) var filterRules: [MidiFilterRule] = []
@@ -191,10 +247,12 @@ public class RaneMidiLearnService {
     public var onLearnModeChanged: ((Bool) -> Void)?
     public var onSelectedTargetChanged: ((FlexFxMidiTarget?) -> Void)?
     public var onMappingUpdated: (() -> Void)?
+    public var onOutMappingUpdated: (() -> Void)?
     public var onFilterRulesUpdated: (() -> Void)?
     public var onMidiActionTriggered: ((FlexFxMidiTarget, Float) -> Void)?
 
     private var mappingObservers: [UUID: () -> Void] = [:]
+    private var outMappingObservers: [UUID: () -> Void] = [:]
     private var learnModeObservers: [UUID: (Bool) -> Void] = [:]
     private var selectedTargetObservers: [UUID: (FlexFxMidiTarget?) -> Void] = [:]
     private var filterRulesObservers: [UUID: () -> Void] = [:]
@@ -250,8 +308,19 @@ public class RaneMidiLearnService {
         midiActionObservers.removeValue(forKey: id)
     }
 
+    @discardableResult
+    public func addOutMappingObserver(_ observer: @escaping () -> Void) -> UUID {
+        let id = UUID()
+        outMappingObservers[id] = observer
+        return id
+    }
+    public func removeOutMappingObserver(_ id: UUID) {
+        outMappingObservers.removeValue(forKey: id)
+    }
+
     private init() {
         loadMappings()
+        loadOutMappings()
         loadFilterRules()
     }
 
@@ -292,6 +361,52 @@ public class RaneMidiLearnService {
         }
         onMappingUpdated?()
         for obs in mappingObservers.values {
+            obs()
+        }
+    }
+
+    private func loadOutMappings() {
+        guard let data = UserDefaults.standard.data(forKey: outDefaultsKey) else {
+            // Setup default Sixty-Eight hardware LEDs out-mapping for quick out-of-the-box experience
+            self.outMappings = [
+                .modulePower: MidiOutMapping(type: .note, number: 19, channel: 0, onColor: .on, offColor: .off),
+                .fxToggle:    MidiOutMapping(type: .note, number: 0,  channel: 0, onColor: .on, offColor: .off),
+                .fxFilter:    MidiOutMapping(type: .note, number: 12, channel: 0, onColor: .on, offColor: .off),
+                .fxFlanger:   MidiOutMapping(type: .note, number: 11, channel: 0, onColor: .on, offColor: .off),
+                .fxPhaser:    MidiOutMapping(type: .note, number: 10, channel: 0, onColor: .on, offColor: .off),
+                .fxEcho:      MidiOutMapping(type: .note, number: 13, channel: 0, onColor: .on, offColor: .off),
+                .fxDubDelay:  MidiOutMapping(type: .note, number: 9,  channel: 0, onColor: .on, offColor: .off),
+                .fxReverb:    MidiOutMapping(type: .note, number: 8,  channel: 0, onColor: .on, offColor: .off)
+            ]
+            return
+        }
+        do {
+            let decoded = try JSONDecoder().decode([String: MidiOutMapping].self, from: data)
+            var loaded: [FlexFxMidiTarget: MidiOutMapping] = [:]
+            for (key, val) in decoded {
+                if let target = FlexFxMidiTarget(rawValue: key) {
+                    loaded[target] = val
+                }
+            }
+            self.outMappings = loaded
+        } catch {
+            print("Failed to load MIDI out mappings: \(error)")
+        }
+    }
+
+    private func saveOutMappings() {
+        var dict: [String: MidiOutMapping] = [:]
+        for (target, mapping) in outMappings {
+            dict[target.rawValue] = mapping
+        }
+        do {
+            let data = try JSONEncoder().encode(dict)
+            UserDefaults.standard.set(data, forKey: outDefaultsKey)
+        } catch {
+            print("Failed to save MIDI out mappings: \(error)")
+        }
+        onOutMappingUpdated?()
+        for obs in outMappingObservers.values {
             obs()
         }
     }
@@ -373,6 +488,25 @@ public class RaneMidiLearnService {
     public func clearAllMappings() {
         mappings.removeAll()
         saveMappings()
+    }
+
+    public func outMappingFor(target: FlexFxMidiTarget) -> MidiOutMapping? {
+        return outMappings[target]
+    }
+
+    public func clearOutMapping(for target: FlexFxMidiTarget) {
+        outMappings.removeValue(forKey: target)
+        saveOutMappings()
+    }
+
+    public func setOutMapping(for target: FlexFxMidiTarget, mapping: MidiOutMapping) {
+        outMappings[target] = mapping
+        saveOutMappings()
+    }
+
+    public func clearAllOutMappings() {
+        outMappings.removeAll()
+        saveOutMappings()
     }
 
     // MARK: - Incoming MIDI Event Handling

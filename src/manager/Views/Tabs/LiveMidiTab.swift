@@ -9,6 +9,8 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
     private struct ControllerManagerRefs {
         static var mappingTableView: NSTableView?
         static var filterTableView: NSTableView?
+        static var tableModeSegment: NSSegmentedControl?
+        static var isOutTableActive: Bool = false
 
         static var filterTypePopup: NSPopUpButton?
         static var filterNumberField: NSTextField?
@@ -31,6 +33,19 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
             .tempo,
             .prePost
         ]
+
+        // Out mapping rows: Targets that have status / LED indicators
+        static var outMappingRows: [FlexFxMidiTarget] = [
+            .modulePower,
+            .fxToggle,
+            .fxFilter,
+            .fxFlanger,
+            .fxPhaser,
+            .fxEcho,
+            .fxDubDelay,
+            .fxReverb,
+            .prePost
+        ]
     }
 
     func buildMidiPage() -> NSView {
@@ -41,7 +56,7 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
         page.edgeInsets = NSEdgeInsets(top: 2, left: 0, bottom: 2, right: 0)
 
         // =========================================================================
-        // SECTION 1: TRAKTOR CONTROLLER MANAGER MAPPING TABLE
+        // SECTION 1: TRAKTOR CONTROLLER MANAGER MAPPING TABLE (IN / OUT TOGGLE)
         // =========================================================================
         let sec1Outer = NSStackView()
         sec1Outer.orientation = .vertical
@@ -68,6 +83,14 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
         titleLabel.font = NSFont.systemFont(ofSize: 12, weight: .bold)
         titleLabel.textColor = NSColor(white: 0.92, alpha: 1.0)
         sec1TopBar.addArrangedSubview(titleLabel)
+
+        // Segmented Control: [Add In... (Inputs)] vs [Add Out... (LED Outputs)]
+        let modeSegment = NSSegmentedControl(labels: ["Add In... (Controller Input)", "Add Out... (LED Feedback)"], trackingMode: .selectOne, target: self, action: #selector(onTableModeChanged(_:)))
+        modeSegment.selectedSegment = ControllerManagerRefs.isOutTableActive ? 1 : 0
+        modeSegment.controlSize = .small
+        modeSegment.font = NSFont.systemFont(ofSize: 11, weight: .bold)
+        sec1TopBar.addArrangedSubview(modeSegment)
+        ControllerManagerRefs.tableModeSegment = modeSegment
 
         let spacer1 = NSView()
         spacer1.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -105,40 +128,12 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
         tableView.gridColor = NSColor(white: 0.22, alpha: 0.8)
         tableView.backgroundColor = NSColor(red: 0.12, green: 0.125, blue: 0.14, alpha: 1.0)
 
-        let colControl = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("Control"))
-        colControl.title = "Control (Target)"
-        colControl.width = 130
-        tableView.addTableColumn(colControl)
-
-        let colType = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("Type"))
-        colType.title = "Type (Interaction)"
-        colType.width = 110
-        tableView.addTableColumn(colType)
-
-        let colOption = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("Option"))
-        colOption.title = "Option (Mode)"
-        colOption.width = 95
-        tableView.addTableColumn(colOption)
-
-        let colMidi = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("Midi"))
-        colMidi.title = "Mapped MIDI (Type / # / Ch)"
-        colMidi.width = 190
-        tableView.addTableColumn(colMidi)
-
-        let colLearn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("Learn"))
-        colLearn.title = "Learn"
-        colLearn.width = 75
-        tableView.addTableColumn(colLearn)
-
-        let colReset = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("Reset"))
-        colReset.title = "Action"
-        colReset.width = 45
-        tableView.addTableColumn(colReset)
-
         tableView.dataSource = self
         tableView.delegate = self
         tableScroll.documentView = tableView
         ControllerManagerRefs.mappingTableView = tableView
+
+        configureMappingTableColumns(tableView: tableView)
 
         let tableCard = tableScroll.wrapInCard(
             cornerRadius: 8,
@@ -395,7 +390,17 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
         let learn = RaneMidiLearnService.shared
         learn.addMappingObserver {
             DispatchQueue.main.async {
-                ControllerManagerRefs.mappingTableView?.reloadData()
+                if !ControllerManagerRefs.isOutTableActive {
+                    ControllerManagerRefs.mappingTableView?.reloadData()
+                }
+            }
+        }
+
+        learn.addOutMappingObserver {
+            DispatchQueue.main.async {
+                if ControllerManagerRefs.isOutTableActive {
+                    ControllerManagerRefs.mappingTableView?.reloadData()
+                }
             }
         }
 
@@ -418,10 +423,93 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
         }
     }
 
+    func configureMappingTableColumns(tableView: NSTableView) {
+        while !tableView.tableColumns.isEmpty {
+            tableView.removeTableColumn(tableView.tableColumns[0])
+        }
+
+        if ControllerManagerRefs.isOutTableActive {
+            // OUT TABLE COLUMNS: Control | LED Output (Type / # / Ch) | On Color | Off Color | Test | Action
+            let col1 = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("Control"))
+            col1.title = "Control (Target)"
+            col1.width = 160
+            tableView.addTableColumn(col1)
+
+            let col2 = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("OutMidi"))
+            col2.title = "LED Output (Type / # / Ch)"
+            col2.width = 190
+            tableView.addTableColumn(col2)
+
+            let col3 = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("OnColor"))
+            col3.title = "On State Color"
+            col3.width = 150
+            tableView.addTableColumn(col3)
+
+            let col4 = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("OffColor"))
+            col4.title = "Off State Color"
+            col4.width = 150
+            tableView.addTableColumn(col4)
+
+            let col5 = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("TestLed"))
+            col5.title = "Test LED"
+            col5.width = 80
+            tableView.addTableColumn(col5)
+
+            let col6 = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("Reset"))
+            col6.title = "Action"
+            col6.width = 70
+            tableView.addTableColumn(col6)
+        } else {
+            // IN TABLE COLUMNS: Control | Type | Option | Mapped MIDI | Learn | Action
+            let col1 = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("Control"))
+            col1.title = "Control (Target)"
+            col1.width = 160
+            tableView.addTableColumn(col1)
+
+            let col2 = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("Type"))
+            col2.title = "Type"
+            col2.width = 120
+            tableView.addTableColumn(col2)
+
+            let col3 = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("Option"))
+            col3.title = "Option (Mode)"
+            col3.width = 120
+            tableView.addTableColumn(col3)
+
+            let col4 = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("Midi"))
+            col4.title = "Mapped MIDI (Type / # / Ch)"
+            col4.width = 190
+            tableView.addTableColumn(col4)
+
+            let col5 = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("Learn"))
+            col5.title = "Learn"
+            col5.width = 80
+            tableView.addTableColumn(col5)
+
+            let col6 = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("Reset"))
+            col6.title = "Action"
+            col6.width = 70
+            tableView.addTableColumn(col6)
+        }
+    }
+
+    @objc func onTableModeChanged(_ sender: NSSegmentedControl) {
+        ControllerManagerRefs.isOutTableActive = (sender.selectedSegment == 1)
+        if let tv = ControllerManagerRefs.mappingTableView {
+            configureMappingTableColumns(tableView: tv)
+            tv.reloadData()
+        }
+        let modeName = ControllerManagerRefs.isOutTableActive ? "Add Out... (LED Feedback)" : "Add In... (Controller Input)"
+        appendMidiLog("Controller Manager Modus gewechselt: [\(modeName)]")
+    }
+
     // MARK: - NSTableViewDataSource & NSTableViewDelegate
     public func numberOfRows(in tableView: NSTableView) -> Int {
         if tableView.identifier?.rawValue == "FilterTable" {
             return RaneMidiLearnService.shared.filterRules.count
+        }
+        if ControllerManagerRefs.isOutTableActive {
+            return ControllerManagerRefs.outMappingRows.count
         }
         return ControllerManagerRefs.mappingRows.count
     }
@@ -474,6 +562,128 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
         }
 
         // MAPPING TABLE
+        if ControllerManagerRefs.isOutTableActive {
+            guard row < ControllerManagerRefs.outMappingRows.count else { return nil }
+            let target = ControllerManagerRefs.outMappingRows[row]
+            let learn = RaneMidiLearnService.shared
+            let outMap = learn.outMappingFor(target: target)
+            let cellId = col.identifier.rawValue
+
+            if cellId == "Control" {
+                let label = NSTextField(labelWithString: target.displayName)
+                label.font = NSFont.systemFont(ofSize: 11, weight: .bold)
+                label.textColor = NSColor.white
+                return label
+            } else if cellId == "OutMidi" {
+                let stack = NSStackView()
+                stack.orientation = .horizontal
+                stack.spacing = 4
+                stack.alignment = .centerY
+
+                // Type Popup (CC / Note)
+                let typePop = NSPopUpButton(frame: .zero, pullsDown: false)
+                typePop.controlSize = .small
+                typePop.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .semibold)
+                typePop.tag = row
+                typePop.addItems(withTitles: ["CC", "Note"])
+                typePop.selectItem(at: (outMap?.type == .cc) ? 0 : 1) // default Note
+                typePop.target = self
+                typePop.action = #selector(onTableRowOutMidiTypeChanged(_:))
+                stack.addArrangedSubview(typePop)
+
+                // Number Field (0..127)
+                let numField = NSTextField()
+                numField.controlSize = .small
+                numField.font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .bold)
+                numField.alignment = .center
+                numField.tag = row
+                numField.placeholderString = "--"
+                if let m = outMap {
+                    numField.stringValue = "\(m.number)"
+                    numField.textColor = NSColor.systemTeal
+                } else {
+                    numField.stringValue = ""
+                    numField.textColor = NSColor(white: 0.5, alpha: 1.0)
+                }
+                numField.target = self
+                numField.action = #selector(onTableRowOutMidiNumberChanged(_:))
+                numField.translatesAutoresizingMaskIntoConstraints = false
+                numField.widthAnchor.constraint(equalToConstant: 40).isActive = true
+                stack.addArrangedSubview(numField)
+
+                // Channel Popup (Ch 1..16)
+                let chPop = NSPopUpButton(frame: .zero, pullsDown: false)
+                chPop.controlSize = .small
+                chPop.font = NSFont.systemFont(ofSize: 10, weight: .regular)
+                chPop.tag = row
+                var chTitles: [String] = []
+                for c in 1...16 { chTitles.append("Ch \(c)") }
+                chPop.addItems(withTitles: chTitles)
+                let ch = outMap?.channel ?? 0
+                chPop.selectItem(at: min(Int(ch), 15))
+                chPop.target = self
+                chPop.action = #selector(onTableRowOutMidiChannelChanged(_:))
+                stack.addArrangedSubview(chPop)
+
+                return stack
+            } else if cellId == "OnColor" {
+                let colorPop = NSPopUpButton(frame: .zero, pullsDown: false)
+                colorPop.controlSize = .small
+                colorPop.font = NSFont.systemFont(ofSize: 10, weight: .medium)
+                colorPop.tag = row
+                colorPop.target = self
+                colorPop.action = #selector(onTableRowOnColorChanged(_:))
+
+                let colors = LedColor.allCases
+                colorPop.addItems(withTitles: colors.map { $0.rawValue })
+                let current = outMap?.onColor ?? .on
+                if let idx = colors.firstIndex(of: current) {
+                    colorPop.selectItem(at: idx)
+                }
+                return colorPop
+            } else if cellId == "OffColor" {
+                let colorPop = NSPopUpButton(frame: .zero, pullsDown: false)
+                colorPop.controlSize = .small
+                colorPop.font = NSFont.systemFont(ofSize: 10, weight: .medium)
+                colorPop.tag = row
+                colorPop.target = self
+                colorPop.action = #selector(onTableRowOffColorChanged(_:))
+
+                let colors = LedColor.allCases
+                colorPop.addItems(withTitles: colors.map { $0.rawValue })
+                let current = outMap?.offColor ?? .off
+                if let idx = colors.firstIndex(of: current) {
+                    colorPop.selectItem(at: idx)
+                }
+                return colorPop
+            } else if cellId == "TestLed" {
+                let btn = NSButton(title: "Test", target: self, action: #selector(onTableRowTestLedClicked(_:)))
+                btn.tag = row
+                btn.bezelStyle = .inline
+                btn.font = NSFont.systemFont(ofSize: 10, weight: .bold)
+                btn.wantsLayer = true
+                btn.layer?.cornerRadius = 4
+                btn.layer?.backgroundColor = NSColor.systemTeal.withAlphaComponent(0.25).cgColor
+                btn.layer?.borderColor = NSColor.systemTeal.cgColor
+                btn.layer?.borderWidth = 1.0
+                btn.contentTintColor = NSColor.systemTeal
+                return btn
+            } else if cellId == "Reset" {
+                let btn = NSButton(title: "Clear", target: self, action: #selector(onTableRowClearOutClicked(_:)))
+                btn.tag = row
+                btn.bezelStyle = .inline
+                btn.font = NSFont.systemFont(ofSize: 10, weight: .regular)
+                btn.wantsLayer = true
+                btn.layer?.cornerRadius = 4
+                btn.layer?.backgroundColor = NSColor(white: 0.18, alpha: 0.7).cgColor
+                btn.contentTintColor = outMap != nil ? NSColor.systemOrange : NSColor(white: 0.4, alpha: 1.0)
+                btn.isEnabled = (outMap != nil)
+                return btn
+            }
+            return nil
+        }
+
+        // IN MAPPING TABLE
         guard row < ControllerManagerRefs.mappingRows.count else { return nil }
         let target = ControllerManagerRefs.mappingRows[row]
         let learn = RaneMidiLearnService.shared
@@ -748,9 +958,139 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
         ControllerManagerRefs.mappingTableView?.reloadData()
     }
 
+    // MARK: - Actions (Out Mapping Table)
+    @objc func onTableRowOutMidiTypeChanged(_ sender: NSPopUpButton) {
+        let row = sender.tag
+        guard row < ControllerManagerRefs.outMappingRows.count else { return }
+        let target = ControllerManagerRefs.outMappingRows[row]
+        let isNote = (sender.indexOfSelectedItem == 1)
+        let newType: MidiMessageType = isNote ? .note : .cc
+
+        let learn = RaneMidiLearnService.shared
+        var existing = learn.outMappingFor(target: target) ?? MidiOutMapping(type: newType, number: 0, channel: 0)
+        existing.type = newType
+        learn.setOutMapping(for: target, mapping: existing)
+        appendMidiLog("Controller Manager Out: [\(target.displayName)] Typ -> [\(isNote ? "Note" : "CC")]")
+        ControllerManagerRefs.mappingTableView?.reloadData()
+    }
+
+    @objc func onTableRowOutMidiNumberChanged(_ sender: NSTextField) {
+        let row = sender.tag
+        guard row < ControllerManagerRefs.outMappingRows.count else { return }
+        let target = ControllerManagerRefs.outMappingRows[row]
+        let text = sender.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard let num = UInt8(text), num <= 127 else {
+            sender.stringValue = ""
+            return
+        }
+
+        let learn = RaneMidiLearnService.shared
+        var existing = learn.outMappingFor(target: target) ?? MidiOutMapping(type: .note, number: num, channel: 0)
+        existing.number = num
+        learn.setOutMapping(for: target, mapping: existing)
+        appendMidiLog("Controller Manager Out: [\(target.displayName)] Nummer -> [\(num)]")
+        ControllerManagerRefs.mappingTableView?.reloadData()
+    }
+
+    @objc func onTableRowOutMidiChannelChanged(_ sender: NSPopUpButton) {
+        let row = sender.tag
+        guard row < ControllerManagerRefs.outMappingRows.count else { return }
+        let target = ControllerManagerRefs.outMappingRows[row]
+        let channel = UInt8(max(0, sender.indexOfSelectedItem))
+
+        let learn = RaneMidiLearnService.shared
+        var existing = learn.outMappingFor(target: target) ?? MidiOutMapping(type: .note, number: 0, channel: channel)
+        existing.channel = channel
+        learn.setOutMapping(for: target, mapping: existing)
+        appendMidiLog("Controller Manager Out: [\(target.displayName)] Kanal -> [Ch \(channel + 1)]")
+        ControllerManagerRefs.mappingTableView?.reloadData()
+    }
+
+    @objc func onTableRowOnColorChanged(_ sender: NSPopUpButton) {
+        let row = sender.tag
+        guard row < ControllerManagerRefs.outMappingRows.count else { return }
+        let target = ControllerManagerRefs.outMappingRows[row]
+        let colors = LedColor.allCases
+        let selectedColor = colors[min(max(0, sender.indexOfSelectedItem), colors.count - 1)]
+
+        let learn = RaneMidiLearnService.shared
+        var existing = learn.outMappingFor(target: target) ?? MidiOutMapping(type: .note, number: 0, channel: 0)
+        existing.onColor = selectedColor
+        learn.setOutMapping(for: target, mapping: existing)
+        appendMidiLog("Controller Manager Out: [\(target.displayName)] ON Farbe -> [\(selectedColor.rawValue)]")
+        RaneFlexFxService.shared.updateHardwareLeds()
+        ControllerManagerRefs.mappingTableView?.reloadData()
+    }
+
+    @objc func onTableRowOffColorChanged(_ sender: NSPopUpButton) {
+        let row = sender.tag
+        guard row < ControllerManagerRefs.outMappingRows.count else { return }
+        let target = ControllerManagerRefs.outMappingRows[row]
+        let colors = LedColor.allCases
+        let selectedColor = colors[min(max(0, sender.indexOfSelectedItem), colors.count - 1)]
+
+        let learn = RaneMidiLearnService.shared
+        var existing = learn.outMappingFor(target: target) ?? MidiOutMapping(type: .note, number: 0, channel: 0)
+        existing.offColor = selectedColor
+        learn.setOutMapping(for: target, mapping: existing)
+        appendMidiLog("Controller Manager Out: [\(target.displayName)] OFF Farbe -> [\(selectedColor.rawValue)]")
+        RaneFlexFxService.shared.updateHardwareLeds()
+        ControllerManagerRefs.mappingTableView?.reloadData()
+    }
+
+    @objc func onTableRowTestLedClicked(_ sender: NSButton) {
+        let row = sender.tag
+        guard row < ControllerManagerRefs.outMappingRows.count else { return }
+        let target = ControllerManagerRefs.outMappingRows[row]
+        let learn = RaneMidiLearnService.shared
+        let midi = RaneMidiService.shared
+
+        guard let outMap = learn.outMappingFor(target: target) else {
+            appendMidiLog("Controller Manager Out: [\(target.displayName)] hat noch keine zugewiesene LED-Nummer!")
+            return
+        }
+
+        let ch = (outMap.channel == 255) ? 0 : outMap.channel
+        let vel = outMap.onColor.onVelocity
+        if outMap.type == .note {
+            midi.sendNoteOn(note: outMap.number, velocity: vel, channel: ch)
+            appendMidiLog("LED Test: Note ON \(outMap.number) Vel=\(vel) Ch=\(ch + 1) gesendet")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                let offVel = outMap.offColor.offVelocity
+                if offVel > 0 {
+                    midi.sendNoteOn(note: outMap.number, velocity: offVel, channel: ch)
+                } else {
+                    midi.sendNoteOff(note: outMap.number, channel: ch)
+                }
+            }
+        } else {
+            midi.sendCC(cc: outMap.number, value: vel, channel: ch)
+            appendMidiLog("LED Test: CC #\(outMap.number) Val=\(vel) Ch=\(ch + 1) gesendet")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                let offVel = outMap.offColor.offVelocity
+                midi.sendCC(cc: outMap.number, value: offVel, channel: ch)
+            }
+        }
+    }
+
+    @objc func onTableRowClearOutClicked(_ sender: NSButton) {
+        let row = sender.tag
+        guard row < ControllerManagerRefs.outMappingRows.count else { return }
+        let target = ControllerManagerRefs.outMappingRows[row]
+        RaneMidiLearnService.shared.clearOutMapping(for: target)
+        appendMidiLog("Controller Manager Out: LED-Mapping für [\(target.displayName)] gelöscht.")
+        ControllerManagerRefs.mappingTableView?.reloadData()
+    }
+
     @objc func onClearAllMappingsClicked() {
-        RaneMidiLearnService.shared.clearAllMappings()
-        appendMidiLog("Controller Manager: Alle MIDI Mappings zurückgesetzt.")
+        if ControllerManagerRefs.isOutTableActive {
+            RaneMidiLearnService.shared.clearAllOutMappings()
+            appendMidiLog("Controller Manager: Alle LED Out-Mappings zurückgesetzt.")
+        } else {
+            RaneMidiLearnService.shared.clearAllMappings()
+            appendMidiLog("Controller Manager: Alle MIDI In-Mappings zurückgesetzt.")
+        }
         ControllerManagerRefs.mappingTableView?.reloadData()
     }
 
