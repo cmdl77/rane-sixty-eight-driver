@@ -20,6 +20,7 @@ public enum FlexFxMidiTarget: String, CaseIterable, Codable {
     case prePost     = "PRE_POST"       // Pre/Post Fader toggle
     case modulePower = "MODULE_POWER"   // Module master power
     case abletonLink = "ABLETON_LINK"   // Ableton Link On/Off
+    case inputGain   = "INPUT_GAIN"     // Input Gain Fader / Volume
     case inputSelect = "INPUT_SELECT"   // Cycle Audio Input Source
     case inputFlexFx = "INPUT_FLEXFX"   // Direct Select FlexFX Send (Ch 9–10)
     case inputPgm1   = "INPUT_PGM1"     // Direct Select Deck 1 / PGM 1 (Ch 1–2)
@@ -45,6 +46,7 @@ public enum FlexFxMidiTarget: String, CaseIterable, Codable {
         case .prePost:      return "Pre / Post"
         case .modulePower:  return "Modul Power"
         case .abletonLink:  return "Ableton Link On/Off"
+        case .inputGain:    return Localization.tr(en: "Input Gain Fader", de: "Eingangs-Gain Fader")
         case .inputSelect:  return "Audio Eingang (Umschalten)"
         case .inputFlexFx:  return "Eingang: FlexFX Send (Ch 9–10)"
         case .inputPgm1:    return "Eingang: Deck 1 / PGM 1 (Ch 1–2)"
@@ -57,7 +59,7 @@ public enum FlexFxMidiTarget: String, CaseIterable, Codable {
 
     public var defaultInteractionType: ControlInteractionType {
         switch self {
-        case .dryWet, .depth, .tempo:
+        case .dryWet, .depth, .tempo, .inputGain:
             return .faderKnob
         default:
             return .button
@@ -825,6 +827,14 @@ public class RaneMidiLearnService {
                 }
             } else {
                 flex.isLinkEnabled = (normValue > 0.5 || rawValue > 0)
+            }
+        case .inputGain:
+            if interactionType == .encoder {
+                let step = isRelativeIncrement ? 0.02 : (isRelativeDecrement ? -0.02 : (normValue > 0.5 ? 0.02 : -0.02))
+                flex.inputGain = max(0.0, min(2.0, flex.inputGain + step))
+            } else {
+                // Absolute mapping: 0.0 (-inf dB) to 2.0 (+6 dB boost). 0.5 is 1.0 (0 dB unity)
+                flex.inputGain = Double(normValue * 2.0)
             }
         case .inputSelect:
             if interactionType == .button {

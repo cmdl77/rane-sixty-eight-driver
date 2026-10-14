@@ -30,6 +30,8 @@ extension MainWindowController {
         var depthBadge: NSTextField!
         var tempoSlider: NSSlider!
         var tempoBadge: NSTextField!
+        var inputGainSlider: NSSlider!
+        var inputGainBadge: NSTextField!
         var audioInputPopup: NSPopUpButton!
         var rescanPluginsButton: NSButton!
         var oledInputBadge: NSTextField!
@@ -599,11 +601,31 @@ extension MainWindowController {
 
         main.addArrangedSubview(row1)
 
-        // Sliders: Dry/Wet & Depth/Feedback & Tempo / BPM
+        // Sliders: Input Gain & Dry/Wet & Feedback & Tempo / BPM
         let slidersRow = NSStackView()
         slidersRow.orientation = .horizontal
         slidersRow.alignment = .centerY
-        slidersRow.spacing = 16
+        slidersRow.spacing = 14
+
+        // 0. Input Gain Slider (Fader) & Learn Label
+        let igStack = NSStackView()
+        igStack.orientation = .horizontal
+        igStack.spacing = 6
+        igStack.alignment = .centerY
+        let igLabel = NSTextField(labelWithString: Localization.tr(en: "Input Gain:", de: "Input Gain:"))
+        igLabel.font = NSFont.systemFont(ofSize: 11, weight: .bold)
+        igLabel.textColor = NSColor(white: 0.90, alpha: 1.0)
+        let igSlider = NSSlider(value: RaneFlexFxService.shared.inputGain * 100.0, minValue: 0, maxValue: 200, target: self, action: #selector(onInputGainChanged(_:)))
+        igSlider.isContinuous = true
+        igSlider.translatesAutoresizingMaskIntoConstraints = false
+        igSlider.widthAnchor.constraint(equalToConstant: 95).isActive = true
+        let igBadge = createValueBadge(text: formatGainBadge(RaneFlexFxService.shared.inputGain))
+        igStack.addArrangedSubview(igLabel)
+        igStack.addArrangedSubview(igSlider)
+        igStack.addArrangedSubview(igBadge)
+        Self.flexFxRefs.inputGainSlider = igSlider
+        Self.flexFxRefs.inputGainBadge = igBadge
+        slidersRow.addArrangedSubview(igStack)
 
         // Dry/Wet Slider & Clickable Learn Label
         let dwStack = NSStackView()
@@ -616,7 +638,7 @@ extension MainWindowController {
         let dwSlider = NSSlider(value: RaneFlexFxService.shared.dryWet * 100.0, minValue: 0, maxValue: 100, target: self, action: #selector(onDryWetChanged(_:)))
         dwSlider.isContinuous = true
         dwSlider.translatesAutoresizingMaskIntoConstraints = false
-        dwSlider.widthAnchor.constraint(equalToConstant: 105).isActive = true
+        dwSlider.widthAnchor.constraint(equalToConstant: 95).isActive = true
         let dwBadge = createValueBadge(text: "\(Int(RaneFlexFxService.shared.dryWet * 100.0))%")
         dwStack.addArrangedSubview(dwLabel)
         dwStack.addArrangedSubview(dwSlider)
@@ -636,7 +658,7 @@ extension MainWindowController {
         let dpSlider = NSSlider(value: RaneFlexFxService.shared.depth * 100.0, minValue: 0, maxValue: 100, target: self, action: #selector(onDepthChanged(_:)))
         dpSlider.isContinuous = true
         dpSlider.translatesAutoresizingMaskIntoConstraints = false
-        dpSlider.widthAnchor.constraint(equalToConstant: 105).isActive = true
+        dpSlider.widthAnchor.constraint(equalToConstant: 95).isActive = true
         let dpBadge = createValueBadge(text: "\(Int(RaneFlexFxService.shared.depth * 100.0))%")
         dpStack.addArrangedSubview(dpLabel)
         dpStack.addArrangedSubview(dpSlider)
@@ -656,7 +678,7 @@ extension MainWindowController {
         let tpSlider = NSSlider(value: RaneFlexFxService.shared.bpm, minValue: 60.0, maxValue: 200.0, target: self, action: #selector(onTempoSliderChanged(_:)))
         tpSlider.isContinuous = true
         tpSlider.translatesAutoresizingMaskIntoConstraints = false
-        tpSlider.widthAnchor.constraint(equalToConstant: 105).isActive = true
+        tpSlider.widthAnchor.constraint(equalToConstant: 95).isActive = true
         let tpBadge = createValueBadge(text: String(format: "%.1f", RaneFlexFxService.shared.bpm))
         tpStack.addArrangedSubview(tpLabel)
         tpStack.addArrangedSubview(tpSlider)
@@ -790,7 +812,9 @@ extension MainWindowController {
         // 4. Beat Segments
         Self.flexFxRefs.beatSegments?.selectedSegment = s.currentDivision.rawValue
 
-        // 4b. Dry/Wet & Depth Sliders & Badges live synchronization
+        // 4b. Input Gain, Dry/Wet & Depth Sliders & Badges live synchronization
+        Self.flexFxRefs.inputGainSlider?.doubleValue = s.inputGain * 100.0
+        Self.flexFxRefs.inputGainBadge?.stringValue = formatGainBadge(s.inputGain)
         Self.flexFxRefs.dryWetSlider?.doubleValue = s.dryWet * 100.0
         Self.flexFxRefs.dryWetBadge?.stringValue = "\(Int(round(s.dryWet * 100.0)))%"
         Self.flexFxRefs.depthSlider?.doubleValue = s.depth * 100.0
@@ -890,6 +914,8 @@ extension MainWindowController {
                     self?.appendMidiLog("MIDI TRIGGER: [Modul Power] live geschaltet -> [\(flex.isModuleEnabled ? "AKTIV (ON)" : "ABGESCHALTET / BYPASS (OFF)")] (Raw-Wert: \(val))")
                 } else if target == .fxToggle {
                     self?.appendMidiLog("MIDI TRIGGER: [FlexFX On/Off] live geschaltet -> [\(flex.isEnabled ? "EFFEKT AKTIV" : "EFFEKT BYPASS")] (Raw-Wert: \(val))")
+                } else if target == .inputGain {
+                    self?.appendMidiLog("MIDI TRIGGER: [Eingang Gain] live geregelt -> [\(String(format: "%.0f%%", flex.inputGain * 100.0))] (Raw-Wert: \(val))")
                 }
                 self?.updateFlexFxUi()
             }
@@ -1019,5 +1045,23 @@ extension MainWindowController {
         appendMidiLog("FlexFX Host: Scan abgeschlossen — \(count) AudioUnit/VST Plugins gefunden.")
         rebuildAllPluginMenus()
         updateFlexFxUi()
+    }
+
+    private func formatGainBadge(_ gain: Double) -> String {
+        if gain <= 0.001 {
+            return "-∞ dB"
+        }
+        let db = 20.0 * log10(gain)
+        if abs(db) < 0.05 {
+            return "0.0 dB"
+        }
+        return String(format: "%+.1f dB", db)
+    }
+
+    @objc func onInputGainChanged(_ sender: NSSlider) {
+        guard RaneFlexFxService.shared.isModuleEnabled else { return }
+        let val = sender.doubleValue / 100.0
+        RaneFlexFxService.shared.inputGain = val
+        Self.flexFxRefs.inputGainBadge?.stringValue = formatGainBadge(val)
     }
 }

@@ -247,6 +247,14 @@ class RaneFlexFxService {
         inputSource = all[nextIdx]
     }
 
+    private let inputGainKey = "RaneSixtyEight_FlexFxInputGain_v1"
+    public var inputGain: Double = 1.0 { // 0.0 (-inf dB) ... 1.0 (0 dB unity) ... 2.0 (+6 dB)
+        didSet {
+            UserDefaults.standard.set(inputGain, forKey: inputGainKey)
+            notifyStateChanged()
+        }
+    }
+
     // Callbacks for UI updates
     var onStateChanged: (() -> Void)?
     var onBeatPulse: ((Int) -> Void)? // Beat 0, 1, 2, 3
@@ -380,6 +388,10 @@ class RaneFlexFxService {
         if let savedSource = UserDefaults.standard.object(forKey: inputSourceKey) as? Int,
            let src = FlexFxInputSource(rawValue: savedSource) {
             self.inputSource = src
+        }
+        if UserDefaults.standard.object(forKey: inputGainKey) != nil {
+            let savedGain = UserDefaults.standard.double(forKey: inputGainKey)
+            self.inputGain = max(0.0, min(2.0, savedGain))
         }
         setupNativeAbletonLink()
         startAudioEngine()
@@ -559,10 +571,11 @@ class RaneFlexFxService {
         // 1. Capture USB In from selected input source (FlexFX Send Ch 9-10, Deck 1..4, or Main Mix)
         var maxIn: Float = 0.0
         let chOffset = inputSource.channelOffset
+        let gain = Float(inputGain)
         if inChannels >= chOffset + 2 {
             for f in 0..<frames {
-                let sL = inPtr[f * inChannels + chOffset]
-                let sR = inPtr[f * inChannels + chOffset + 1]
+                let sL = inPtr[f * inChannels + chOffset] * gain
+                let sR = inPtr[f * inChannels + chOffset + 1] * gain
                 scratchInL[f] = sL
                 scratchInR[f] = sR
                 let al = abs(sL)

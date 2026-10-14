@@ -21,6 +21,7 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
             .modulePower,
             .fxToggle,
             .abletonLink,
+            .inputGain,
             .inputSelect,
             .inputFlexFx,
             .inputPgm1,
