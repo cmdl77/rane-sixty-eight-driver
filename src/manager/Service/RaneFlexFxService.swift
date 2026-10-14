@@ -102,9 +102,6 @@ enum BeatDivision: Int, CaseIterable {
 class RaneFlexFxService {
     static let shared = RaneFlexFxService()
 
-    // Flag to prevent MIDI loops during incoming MIDI processing
-    var isSuppressingHardwareLeds: Bool = false
-
     // Master Module Power Switch (Turns entire module ON or OFF)
     var isModuleEnabled: Bool = true {
         didSet {
@@ -117,11 +114,11 @@ class RaneFlexFxService {
                         bpm = round(liveTempo * 10.0) / 10.0
                     }
                 }
-                if !isSuppressingHardwareLeds { updateHardwareLeds() }
+                updateHardwareLeds()
                 startAudioEngine()
             } else {
                 rane_link_enable(false)
-                if !isSuppressingHardwareLeds { clearAllHardwareLeds() }
+                clearAllHardwareLeds()
             }
             notifyStateChanged()
         }
@@ -131,7 +128,7 @@ class RaneFlexFxService {
     var currentEffect: FlexFxType = .echo {
         didSet {
             notifyStateChanged()
-            if !isSuppressingHardwareLeds { updateHardwareLeds() }
+            updateHardwareLeds()
         }
     }
     var currentDivision: BeatDivision = .d1_2 {
@@ -143,7 +140,7 @@ class RaneFlexFxService {
     var isEnabled: Bool = true {
         didSet {
             notifyStateChanged()
-            if !isSuppressingHardwareLeds { updateHardwareLeds() }
+            updateHardwareLeds()
         }
     }
     var isLinkEnabled: Bool = true {
@@ -164,7 +161,7 @@ class RaneFlexFxService {
                 linkPeers = 0
             }
             notifyStateChanged()
-            if !isSuppressingHardwareLeds { updateHardwareLeds() }
+            updateHardwareLeds()
         }
     }
     var linkPeers: Int = 0 {
@@ -177,7 +174,10 @@ class RaneFlexFxService {
         didSet { notifyStateChanged() }
     }
     var isPreFader: Bool = false { // false = POST-FADER (Tail/Hallfahne decays naturally), true = PRE-FADER (hard bypass)
-        didSet { notifyStateChanged() }
+        didSet {
+            notifyStateChanged()
+            updateHardwareLeds()
+        }
     }
 
     // Callbacks for UI updates

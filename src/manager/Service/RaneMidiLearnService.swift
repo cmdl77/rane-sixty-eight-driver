@@ -644,8 +644,6 @@ public class RaneMidiLearnService {
 
     private func executeTargetAction(target: FlexFxMidiTarget, rawValue: UInt8, normValue: Float, isPressed: Bool, interactionType: ControlInteractionType, buttonMode: ButtonMode = .toggle) {
         let flex = RaneFlexFxService.shared
-        flex.isSuppressingHardwareLeds = true
-        defer { flex.isSuppressingHardwareLeds = false }
 
         // Encoder relative step calculation (65 / 1 = +1, 63 / 127 = -1)
         let isRelativeIncrement = (rawValue == 1 || rawValue == 65)
