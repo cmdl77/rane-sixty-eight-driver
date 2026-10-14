@@ -20,6 +20,7 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
         static var mappingRows: [FlexFxMidiTarget] = [
             .modulePower,
             .fxToggle,
+            .abletonLink,
             .fxFilter,
             .fxFlanger,
             .fxPhaser,
@@ -38,6 +39,7 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
         static var outMappingRows: [FlexFxMidiTarget] = [
             .modulePower,
             .fxToggle,
+            .abletonLink,
             .fxFilter,
             .fxFlanger,
             .fxPhaser,

@@ -164,6 +164,7 @@ class RaneFlexFxService {
                 linkPeers = 0
             }
             notifyStateChanged()
+            if !isSuppressingHardwareLeds { updateHardwareLeds() }
         }
     }
     var linkPeers: Int = 0 {
@@ -626,6 +627,7 @@ class RaneFlexFxService {
         let isFxOn = isEnabled
         let currentFx = currentEffect
         let isPre = isPreFader
+        let isLinkOn = isLinkEnabled
 
         // Evaluate state for each target
         let targetStates: [FlexFxMidiTarget: Bool] = [
@@ -637,7 +639,8 @@ class RaneFlexFxService {
             .fxEcho:      (currentFx == .echo),
             .fxDubDelay:  (currentFx == .dubDelay),
             .fxReverb:    (currentFx == .reverb),
-            .prePost:     isPre
+            .prePost:     isPre,
+            .abletonLink: isLinkOn
         ]
 
         // 1. Process custom Out Mappings

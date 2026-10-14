@@ -19,6 +19,7 @@ public enum FlexFxMidiTarget: String, CaseIterable, Codable {
     case tempo       = "TEMPO"          // Tempo (BPM) Poti
     case prePost     = "PRE_POST"       // Pre/Post Fader toggle
     case modulePower = "MODULE_POWER"   // Module master power
+    case abletonLink = "ABLETON_LINK"   // Ableton Link On/Off
 
     public var displayName: String {
         switch self {
@@ -36,6 +37,7 @@ public enum FlexFxMidiTarget: String, CaseIterable, Codable {
         case .tempo:        return "Tempo (BPM)"
         case .prePost:      return "Pre / Post"
         case .modulePower:  return "Modul Power"
+        case .abletonLink:  return "Ableton Link On/Off"
         }
     }
 
@@ -68,6 +70,7 @@ public enum FlexFxMidiTarget: String, CaseIterable, Codable {
         case "TEMPO": self = .tempo
         case "PRE_POST": self = .prePost
         case "MODULE_POWER": self = .modulePower
+        case "ABLETON_LINK": self = .abletonLink
         default: return nil
         }
     }
@@ -737,6 +740,17 @@ public class RaneMidiLearnService {
                 }
             } else {
                 flex.isModuleEnabled = (normValue > 0.5 || rawValue > 0)
+            }
+        case .abletonLink:
+            if interactionType == .button {
+                switch buttonMode {
+                case .toggle, .trigger:
+                    if isPressed { flex.isLinkEnabled.toggle() }
+                case .hold, .direct:
+                    flex.isLinkEnabled = isPressed
+                }
+            } else {
+                flex.isLinkEnabled = (normValue > 0.5 || rawValue > 0)
             }
         }
 
