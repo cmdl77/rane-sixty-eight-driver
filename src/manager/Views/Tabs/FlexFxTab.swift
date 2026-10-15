@@ -452,7 +452,7 @@ extension MainWindowController {
             popup.menu?.addItem(header)
 
             for p in plugins {
-                let item = NSMenuItem(title: "\(p.name) [\(p.manufacturer)]", action: nil, keyEquivalent: "")
+                let item = NSMenuItem(title: "\(p.name) [\(p.format.rawValue)] [\(p.manufacturer)]", action: nil, keyEquivalent: "")
                 item.representedObject = p.id
                 popup.menu?.addItem(item)
             }

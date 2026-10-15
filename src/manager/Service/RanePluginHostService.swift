@@ -7,15 +7,22 @@ import AudioToolbox
 import AVFoundation
 import CoreAudioKit
 
+public enum PluginFormat: String, Codable {
+    case audioUnit = "AU"
+    case vst2      = "VST"
+}
+
 public struct PluginComponentInfo: Identifiable {
     public let id: String
     public let name: String
     public let manufacturer: String
-    public let desc: AudioComponentDescription
+    public let format: PluginFormat
+    public let path: String?
+    public let desc: AudioComponentDescription?
     public let version: String
 
     public var displayName: String {
-        return "\(name) (\(manufacturer))"
+        return "\(name) [\(format.rawValue)] (\(manufacturer))"
     }
 }
 
@@ -26,10 +33,18 @@ public class PluginSlot {
     public var isCustomPlugin: Bool = false
     public var pluginName: String = "Internal (DaisySP)"
     public var pluginId: String = ""
+    public var pluginFormat: PluginFormat = .audioUnit
     public var componentDesc: AudioComponentDescription? = nil
+    public var vstPath: String? = nil
 
+    // AudioUnit Instance
     public var avAudioUnit: AVAudioUnit? = nil
     public var audioUnit: AudioUnit? = nil
+
+    // VST2 Instance
+    public var vstEffect: UnsafeMutablePointer<AEffect>? = nil
+    public var vstBundle: UnsafeMutableRawPointer? = nil
+
     public var isLoaded: Bool = false
 
     // Real-Time Pre-allocated Audio Buffers (No allocations on audio thread)
@@ -86,6 +101,11 @@ public class PluginSlot {
     }
 
     deinit {
+        if let vst = vstEffect {
+            rane_vst_close(vst, vstBundle)
+            vstEffect = nil
+            vstBundle = nil
+        }
         inL.deallocate()
         inR.deallocate()
         outL.deallocate()
@@ -101,7 +121,16 @@ public class PluginSlot {
                       outPtrL: UnsafeMutablePointer<Float>,
                       outPtrR: UnsafeMutablePointer<Float>,
                       frames: Int) -> Bool {
-        guard isLoaded, let unit = audioUnit, frames <= maxFrames else { return false }
+        guard isLoaded, frames <= maxFrames else { return false }
+
+        // 1. VST2 Native DSP Processing
+        if let vst = vstEffect {
+            rane_vst_process(vst, inPtrL, inPtrR, outPtrL, outPtrR, Int32(frames))
+            return true
+        }
+
+        // 2. AudioUnit DSP Processing
+        guard let unit = audioUnit else { return false }
 
         // Copy input frames to pre-allocated buffer
         memcpy(inL, inPtrL, frames * MemoryLayout<Float>.size)
@@ -153,10 +182,12 @@ public class RanePluginHostService {
 
     // MARK: - Scan Installed AudioUnit & VST Effects
     public func rescanAvailablePlugins() {
+        var list: [PluginComponentInfo] = []
+
+        // 1. Scan AudioUnits via AVAudioUnitComponentManager
         let manager = AVAudioUnitComponentManager.shared()
         let all: [AVAudioUnitComponent] = manager.components(matching: AudioComponentDescription())
 
-        var list: [PluginComponentInfo] = []
         for c in all {
             let t = c.audioComponentDescription.componentType
             if t == kAudioUnitType_Effect || t == kAudioUnitType_MusicEffect {
@@ -166,10 +197,54 @@ public class RanePluginHostService {
                     id: idStr,
                     name: c.name,
                     manufacturer: c.manufacturerName,
+                    format: .audioUnit,
+                    path: nil,
                     desc: desc,
                     version: c.versionString
                 )
                 list.append(info)
+            }
+        }
+
+        // 2. Scan VST Plug-in folders on disk (/Library/Audio/Plug-Ins/VST and ~/Library/Audio/Plug-Ins/VST)
+        let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
+        let vstDirs = [
+            "/Library/Audio/Plug-Ins/VST",
+            "\(homeDir)/Library/Audio/Plug-Ins/VST"
+        ]
+
+        let fm = FileManager.default
+        for dir in vstDirs {
+            guard fm.fileExists(atPath: dir) else { continue }
+            guard let files = try? fm.contentsOfDirectory(atPath: dir) else { continue }
+
+            for file in files {
+                if file.hasSuffix(".vst") && !file.hasSuffix(".vst3") {
+                    let fullPath = (dir as NSString).appendingPathComponent(file)
+                    var nameBuf = [CChar](repeating: 0, count: 256)
+                    var vendorBuf = [CChar](repeating: 0, count: 256)
+                    var inCh: Int32 = 0
+                    var outCh: Int32 = 0
+
+                    if rane_vst_inspect(fullPath, &nameBuf, 256, &vendorBuf, 256, &inCh, &outCh) {
+                        let name = String(cString: nameBuf)
+                        let vendor = String(cString: vendorBuf)
+                        let idStr = "VST:" + fullPath
+
+                        if !list.contains(where: { $0.id == idStr }) {
+                            let info = PluginComponentInfo(
+                                id: idStr,
+                                name: name,
+                                manufacturer: vendor,
+                                format: .vst2,
+                                path: fullPath,
+                                desc: nil,
+                                version: "VST 2.4"
+                            )
+                            list.append(info)
+                        }
+                    }
+                }
             }
         }
 
@@ -192,8 +267,13 @@ public class RanePluginHostService {
             AudioUnitUninitialize(existing)
             slot.audioUnit = nil
             slot.avAudioUnit = nil
-            slot.isLoaded = false
         }
+        if let vst = slot.vstEffect {
+            rane_vst_close(vst, slot.vstBundle)
+            slot.vstEffect = nil
+            slot.vstBundle = nil
+        }
+        slot.isLoaded = false
         slot.windowController?.close()
         slot.windowController = nil
 
@@ -203,6 +283,7 @@ public class RanePluginHostService {
             slot.pluginName = "Internal (\(slot.defaultType.displayName))"
             slot.pluginId = ""
             slot.componentDesc = nil
+            slot.vstPath = nil
             saveSlotConfig(slotIndex: slotIndex)
             DispatchQueue.main.async { [weak self] in
                 self?.onSlotsChanged?()
@@ -211,8 +292,38 @@ public class RanePluginHostService {
             return
         }
 
-        // 2. Instantiate AudioUnit
-        var desc = info.desc
+        // 2A. Instantiate VST2 Plugin
+        if info.format == .vst2, let vstPath = info.path {
+            var bundleRef: UnsafeMutableRawPointer? = nil
+            if let effect = rane_vst_load(vstPath, &bundleRef, 48000.0, 512) {
+                slot.vstEffect = effect
+                slot.vstBundle = bundleRef
+                slot.vstPath = vstPath
+                slot.pluginFormat = .vst2
+                slot.pluginName = info.name
+                slot.pluginId = info.id
+                slot.componentDesc = nil
+                slot.isCustomPlugin = true
+                slot.isLoaded = true
+                self.saveSlotConfig(slotIndex: slotIndex)
+                print("[RanePluginHostService] Slot \(slotIndex) (\(slot.defaultType.displayName)) -> VST Plugin '\(info.name)' erfolgreich aktiviert!")
+                DispatchQueue.main.async { [weak self] in
+                    self?.onSlotsChanged?()
+                    completion?(true)
+                }
+            } else {
+                print("[RanePluginHostService] Fehler beim Laden von VST: \(vstPath)")
+                DispatchQueue.main.async { completion?(false) }
+            }
+            return
+        }
+
+        // 2B. Instantiate AudioUnit
+        guard let desc = info.desc else {
+            completion?(false)
+            return
+        }
+
         AVAudioUnit.instantiate(with: desc, options: []) { [weak self, weak slot] (avUnit, error) in
             guard let self = self, let slot = slot else { return }
 
@@ -261,6 +372,8 @@ public class RanePluginHostService {
             slot.avAudioUnit = avUnit
             slot.audioUnit = unit
             slot.componentDesc = desc
+            slot.vstPath = nil
+            slot.pluginFormat = .audioUnit
             slot.pluginName = info.name
             slot.pluginId = info.id
             slot.isCustomPlugin = true
@@ -268,7 +381,7 @@ public class RanePluginHostService {
 
             self.saveSlotConfig(slotIndex: slotIndex)
 
-            print("[RanePluginHostService] Slot \(slotIndex) (\(slot.defaultType.displayName)) -> Plugin '\(info.name)' erfolgreich aktiviert!")
+            print("[RanePluginHostService] Slot \(slotIndex) (\(slot.defaultType.displayName)) -> AU Plugin '\(info.name)' erfolgreich aktiviert!")
 
             DispatchQueue.main.async {
                 self.onSlotsChanged?()
@@ -282,9 +395,7 @@ public class RanePluginHostService {
         guard slotIndex >= 0 && slotIndex < slots.count else { return }
         let slot = slots[slotIndex]
 
-        guard slot.isCustomPlugin, let avUnit = slot.avAudioUnit, let unit = slot.audioUnit else {
-            return
-        }
+        guard slot.isCustomPlugin else { return }
 
         // If window is already open, bring to front
         if let wc = slot.windowController, let win = wc.window {
@@ -297,7 +408,7 @@ public class RanePluginHostService {
 
         let window = NSWindow(
             contentRect: NSRect(x: 200, y: 200, width: 680, height: 480),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
         )
@@ -308,11 +419,33 @@ public class RanePluginHostService {
         let wc = PluginWindowController(window: window)
         wc.window?.delegate = wc
         wc.onClose = { [weak slot] in
+            if let vst = slot?.vstEffect {
+                rane_vst_close_editor(vst)
+            }
             slot?.windowController = nil
         }
         slot.windowController = wc
 
-        // 1. Attempt Native AUv2 Cocoa UI (FabFilter, Soundtoys, SoundID, Reaktor, Kontakt, etc.)
+        // 0. Native VST2 Cocoa Editor Window
+        if let vst = slot.vstEffect {
+            var w: Int32 = 640
+            var h: Int32 = 400
+            if rane_vst_get_editor_rect(vst, &w, &h) && w > 100 && h > 100 {
+                window.setContentSize(NSSize(width: CGFloat(w), height: CGFloat(h)))
+            }
+            if let cv = window.contentView {
+                rane_vst_open_editor(vst, Unmanaged.passUnretained(cv).toOpaque())
+            }
+            window.center()
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        // AudioUnit Editors
+        guard let avUnit = slot.avAudioUnit, let unit = slot.audioUnit else { return }
+
+        // 1. Attempt Native AUv2 Cocoa UI
         if let customView = createPluginView(for: unit) {
             window.contentView = customView
             let size = customView.frame.size
@@ -351,28 +484,46 @@ public class RanePluginHostService {
         }
     }
 
-    private func createPluginView(for unit: AudioUnit) -> NSView? {
-        var dataSize: UInt32 = 0
+    private func createPluginView(for audioUnit: AudioUnit) -> NSView? {
+        var propSize: UInt32 = 0
         var isWritable: DarwinBoolean = false
-        let err = AudioUnitGetPropertyInfo(unit, kAudioUnitProperty_CocoaUI, kAudioUnitScope_Global, 0, &dataSize, &isWritable)
-        if err == noErr && dataSize > 0 {
-            let raw = UnsafeMutableRawPointer.allocate(byteCount: Int(dataSize), alignment: 8)
-            defer { raw.deallocate() }
-            if AudioUnitGetProperty(unit, kAudioUnitProperty_CocoaUI, kAudioUnitScope_Global, 0, raw, &dataSize) == noErr {
-                let bundleUrl = raw.load(fromByteOffset: 0, as: CFURL.self)
-                let className = raw.load(fromByteOffset: MemoryLayout<CFURL>.size, as: CFString.self)
-                if let bundle = Bundle(url: bundleUrl as URL),
-                   let factoryClass = bundle.classNamed(className as String) as? NSObject.Type {
-                    let factory = factoryClass.init()
-                    let sel = Selector("uiViewForAudioUnit:withSize:")
-                    if factory.responds(to: sel) {
-                        let imp = factory.method(for: sel)
-                        typealias Fn = @convention(c) (AnyObject, Selector, AudioUnit, NSSize) -> NSView?
-                        let fn = unsafeBitCast(imp, to: Fn.self)
-                        if let customView = fn(factory, sel, unit, NSSize(width: 750, height: 500)) {
-                            return customView
-                        }
-                    }
+        let status = AudioUnitGetPropertyInfo(
+            audioUnit,
+            kAudioUnitProperty_CocoaUI,
+            kAudioUnitScope_Global,
+            0,
+            &propSize,
+            &isWritable
+        )
+        guard status == noErr, propSize > 0 else { return nil }
+
+        let data = UnsafeMutableRawPointer.allocate(byteCount: Int(propSize), alignment: 8)
+        defer { data.deallocate() }
+
+        let getStatus = AudioUnitGetProperty(
+            audioUnit,
+            kAudioUnitProperty_CocoaUI,
+            kAudioUnitScope_Global,
+            0,
+            data,
+            &propSize
+        )
+        guard getStatus == noErr else { return nil }
+
+        let cocoaData = data.assumingMemoryBound(to: AudioUnitCocoaViewInfo.self).pointee
+        let bundleURL = cocoaData.mCocoaAUViewBundleLocation.takeUnretainedValue() as URL
+        let className = cocoaData.mCocoaAUViewClass.takeUnretainedValue() as String
+
+        if let bundle = Bundle(url: bundleURL),
+           let factoryClass = bundle.classNamed(className) as? NSObject.Type {
+            let factory = factoryClass.init()
+            let sel = Selector(("uiViewForAudioUnit:withSize:"))
+            if factory.responds(to: sel) {
+                let imp = factory.method(for: sel)
+                typealias FunctionType = @convention(c) (AnyObject, Selector, AudioUnit, NSSize) -> Unmanaged<NSView>?
+                let function = unsafeBitCast(imp, to: FunctionType.self)
+                if let unmanagedView = function(factory, sel, audioUnit, NSSize(width: 600, height: 400)) {
+                    return unmanagedView.takeRetainedValue()
                 }
             }
         }
@@ -422,4 +573,3 @@ class PluginWindowController: NSWindowController, NSWindowDelegate {
         onClose?()
     }
 }
-
