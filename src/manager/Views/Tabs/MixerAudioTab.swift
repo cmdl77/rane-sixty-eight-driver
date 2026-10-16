@@ -29,9 +29,16 @@ extension MainWindowController {
         card1Stack.alignment = .leading
         card1Stack.spacing = 10
 
+        let defaults = UserDefaults.standard
+        let savedBacklight = (defaults.object(forKey: "RaneSixtyEight_ButtonBacklight") as? Bool) ?? true
+        let savedLcd = (defaults.object(forKey: "RaneSixtyEight_LcdContrast") as? Int) ?? 64
+        let savedLow = (defaults.object(forKey: "RaneSixtyEight_PhonesToneLow") as? Int) ?? 64
+        let savedHigh = (defaults.object(forKey: "RaneSixtyEight_PhonesToneHigh") as? Int) ?? 64
+        let savedUsb6 = (defaults.object(forKey: "RaneSixtyEight_Usb6RecordSource") as? Int) ?? 0
+
         // Row 1: Button Backlight Switch
         backlightSwitch = NSSwitch()
-        backlightSwitch.state = .on
+        backlightSwitch.state = savedBacklight ? .on : .off
         backlightSwitch.target = self
         backlightSwitch.action = #selector(onBacklightSwitchChanged)
         let rowBacklight = createSwitchRow(
@@ -48,9 +55,11 @@ extension MainWindowController {
         div1.widthAnchor.constraint(equalTo: card1Stack.widthAnchor).isActive = true
 
         // Row 2: LCD Contrast Slider
-        lcdContrastSlider = NSSlider(value: 64, minValue: 0, maxValue: 127, target: self, action: #selector(onLcdContrastChanged))
+        let initLcdPct = Int(round(Double(savedLcd) / 127.0 * 100.0))
+        lcdContrastSlider = NSSlider(value: Double(savedLcd), minValue: 0, maxValue: 127, target: self, action: #selector(onLcdContrastChanged))
         lcdContrastSlider.isContinuous = true
-        lcdContrastBadge = createValueBadge(text: "50%")
+        lcdContrastBadge = createValueBadge(text: "\(initLcdPct)%")
+        lastLcdVal = UInt8(clamping: savedLcd)
         let rowLcd = createSliderRow(
             symbol: "display",
             title: Localization.tr(en: "LCD Display Contrast & Backlight", de: "LCD Display-Kontrast & Beleuchtung"),
@@ -68,9 +77,11 @@ extension MainWindowController {
         div2.widthAnchor.constraint(equalTo: card1Stack.widthAnchor).isActive = true
 
         // Row 3: Phones Tone Low Slider
-        lowToneSlider = NSSlider(value: 64, minValue: 0, maxValue: 127, target: self, action: #selector(onLowToneChanged))
+        let initLowDb = (Double(savedLow) - 64.0) / 64.0 * 6.0
+        lowToneSlider = NSSlider(value: Double(savedLow), minValue: 0, maxValue: 127, target: self, action: #selector(onLowToneChanged))
         lowToneSlider.isContinuous = true
-        lowToneBadge = createValueBadge(text: "0.0 dB")
+        lowToneBadge = createValueBadge(text: String(format: "%+.1f dB", initLowDb))
+        lastLowVal = UInt8(clamping: savedLow)
         let rowLow = createSliderRow(
             symbol: "headphones",
             title: Localization.tr(en: "Phones Tone Low (Bass)", de: "Phones Tone Low (Bass)"),
@@ -88,9 +99,11 @@ extension MainWindowController {
         div3.widthAnchor.constraint(equalTo: card1Stack.widthAnchor).isActive = true
 
         // Row 4: Phones Tone High Slider
-        highToneSlider = NSSlider(value: 64, minValue: 0, maxValue: 127, target: self, action: #selector(onHighToneChanged))
+        let initHighDb = (Double(savedHigh) - 64.0) / 64.0 * 6.0
+        highToneSlider = NSSlider(value: Double(savedHigh), minValue: 0, maxValue: 127, target: self, action: #selector(onHighToneChanged))
         highToneSlider.isContinuous = true
-        highToneBadge = createValueBadge(text: "0.0 dB")
+        highToneBadge = createValueBadge(text: String(format: "%+.1f dB", initHighDb))
+        lastHighVal = UInt8(clamping: savedHigh)
         let rowHigh = createSliderRow(
             symbol: "headphones",
             title: Localization.tr(en: "Phones Tone High (Treble)", de: "Phones Tone High (Höhen)"),
@@ -139,7 +152,7 @@ extension MainWindowController {
 
         // Row 5: USB-6 Record Source Segmented
         usb6RecordSegment = NSSegmentedControl(labels: ["  Main Mix  ", "  Mic 1  ", "  Mic 2  "], trackingMode: .selectOne, target: self, action: #selector(onUsb6RecordSegmentChanged))
-        usb6RecordSegment.selectedSegment = 0
+        usb6RecordSegment.selectedSegment = max(0, min(2, savedUsb6))
         usb6RecordSegment.controlSize = .regular
         let rowUsb6 = createControlRow(
             symbol: "waveform",
@@ -244,6 +257,7 @@ extension MainWindowController {
         let lowVal = UInt8(lowToneSlider.integerValue)
         let lowDb = (Double(lowVal) - 64.0) / 64.0 * 6.0
         lowToneBadge.stringValue = String(format: "%+.1f dB", lowDb)
+        UserDefaults.standard.set(Int(lowVal), forKey: "RaneSixtyEight_PhonesToneLow")
 
         if lowVal == lastLowVal { return }
         lastLowVal = lowVal
@@ -256,6 +270,7 @@ extension MainWindowController {
         let highVal = UInt8(highToneSlider.integerValue)
         let highDb = (Double(highVal) - 64.0) / 64.0 * 6.0
         highToneBadge.stringValue = String(format: "%+.1f dB", highDb)
+        UserDefaults.standard.set(Int(highVal), forKey: "RaneSixtyEight_PhonesToneHigh")
 
         if highVal == lastHighVal { return }
         lastHighVal = highVal
@@ -267,6 +282,7 @@ extension MainWindowController {
     @objc func onBacklightSwitchChanged() {
         let isOn = (backlightSwitch.state == .on)
         let val: UInt8 = isOn ? 1 : 0
+        UserDefaults.standard.set(isOn, forKey: "RaneSixtyEight_ButtonBacklight")
         sendUserCC(cc: 36, value: val)
         appendMidiLog("OUT: Button Backlight -> CC#36=\(val) (\(isOn ? "Ein" : "Aus")) [Warte auf Quittung...]")
     }
@@ -275,6 +291,7 @@ extension MainWindowController {
         let val = UInt8(lcdContrastSlider.integerValue)
         let pct = Int(round(Double(val) / 127.0 * 100.0))
         lcdContrastBadge.stringValue = "\(pct)%"
+        UserDefaults.standard.set(Int(val), forKey: "RaneSixtyEight_LcdContrast")
 
         if val == lastLcdVal { return }
         lastLcdVal = val
@@ -292,10 +309,29 @@ extension MainWindowController {
 
     @objc func onUsb6RecordSegmentChanged() {
         let sel: UInt8 = UInt8(usb6RecordSegment.selectedSegment + 1)
+        UserDefaults.standard.set(usb6RecordSegment.selectedSegment, forKey: "RaneSixtyEight_Usb6RecordSource")
         sendUserCC(cc: 33, value: sel)
-        sendUserCC(cc: 35, value: sel)
         let name = (sel == 1 ? "Main Mix" : (sel == 2 ? "Mic 1" : "Mic 2"))
-        appendMidiLog("OUT: USB-6 Record -> CC#33 & CC#35=\(sel) (\(name))")
+        appendMidiLog("OUT: USB-6 Record -> CC#33=\(sel) (\(name))")
+    }
+
+    func syncSavedAudioPreferencesToHardware() {
+        guard RaneMidiService.shared.isConnected else { return }
+        let lowVal = UInt8(clamping: lowToneSlider?.integerValue ?? 64)
+        let highVal = UInt8(clamping: highToneSlider?.integerValue ?? 64)
+        let lcdVal = UInt8(clamping: lcdContrastSlider?.integerValue ?? 64)
+        let blVal: UInt8 = (backlightSwitch?.state == .off) ? 0 : 1
+        let usb6Val = UInt8(clamping: (usb6RecordSegment?.selectedSegment ?? 0) + 1)
+
+        lastLowVal = lowVal
+        lastHighVal = highVal
+        lastLcdVal = lcdVal
+
+        sendUserCC(cc: 35, value: lowVal)
+        sendUserCC(cc: 34, value: highVal)
+        sendUserCC(cc: 37, value: lcdVal)
+        sendUserCC(cc: 36, value: blVal)
+        sendUserCC(cc: 33, value: usb6Val)
     }
 
     @objc func onBufferSizePopupChanged() {

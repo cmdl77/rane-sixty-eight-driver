@@ -16,6 +16,10 @@ extension MainWindowController {
                     // Initialize clean slate: all LEDs OFF on connect
                     RaneMidiService.shared.resetAllHardwareLeds()
                     RaneMidiService.shared.requestHardwareDump()
+                    self.syncSavedAudioPreferencesToHardware()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                        self?.syncSavedAudioPreferencesToHardware()
+                    }
                     RaneFlexFxService.shared.updateHardwareLeds()
                     RaneFlexFxService.shared.checkAndUpdateAudioDevice()
                 } else {
@@ -77,9 +81,8 @@ extension MainWindowController {
             usbStatusBadge?.textColor = NSColor.systemGreen
             usbStatusBadge?.layer?.backgroundColor = NSColor.systemGreen.withAlphaComponent(0.15).cgColor
 
-            // Default USB-6 Record to Main Mix (CC 33 = 1 and CC 35 = 1)
-            sendUserCC(cc: 33, value: 1)
-            sendUserCC(cc: 35, value: 1)
+            // Restore saved Headphone Bass/Treble, LCD Contrast, Backlight & USB-6 Record source
+            syncSavedAudioPreferencesToHardware()
         } else {
             headerStatusBadge?.stringValue = Localization.tr(en: "  ● Disconnected  ", de: "  ● Getrennt  ")
             headerStatusBadge?.textColor = NSColor.systemRed
@@ -189,34 +192,61 @@ extension MainWindowController {
             }
         } else if cc == 36 {
             // Button Backlight: CC 36 (1 = On, 0 = Off)
-            let desired: NSControl.StateValue = (value != 0) ? .on : .off
-            if backlightSwitch.state != desired {
-                backlightSwitch.state = desired
+            if let saved = UserDefaults.standard.object(forKey: "RaneSixtyEight_ButtonBacklight") as? Bool {
+                let savedVal: UInt8 = saved ? 1 : 0
+                if value != savedVal {
+                    sendUserCC(cc: 36, value: savedVal)
+                }
+            } else {
+                let desired: NSControl.StateValue = (value != 0) ? .on : .off
+                if backlightSwitch.state != desired {
+                    backlightSwitch.state = desired
+                }
             }
         } else if cc == 37 {
             // LCD Contrast: CC 37 (0..127)
-            if lcdContrastSlider.integerValue != Int(value) {
+            if let saved = UserDefaults.standard.object(forKey: "RaneSixtyEight_LcdContrast") as? Int {
+                let savedVal = UInt8(clamping: saved)
+                if value != savedVal {
+                    sendUserCC(cc: 37, value: savedVal)
+                }
+            } else if lcdContrastSlider.integerValue != Int(value) {
                 lcdContrastSlider.integerValue = Int(value)
                 let pct = Int(round(Double(value) / 127.0 * 100.0))
                 lcdContrastBadge.stringValue = "\(pct)%"
             }
         } else if cc == 34 {
             // Phones Tone High: CC 34
-            if highToneSlider.integerValue != Int(value) {
+            if let saved = UserDefaults.standard.object(forKey: "RaneSixtyEight_PhonesToneHigh") as? Int {
+                let savedVal = UInt8(clamping: saved)
+                if value != savedVal {
+                    sendUserCC(cc: 34, value: savedVal)
+                }
+            } else if highToneSlider.integerValue != Int(value) {
                 highToneSlider.integerValue = Int(value)
                 let highDb = (Double(value) - 64.0) / 64.0 * 6.0
                 highToneBadge.stringValue = String(format: "%+.1f dB", highDb)
             }
         } else if cc == 35 {
             // Phones Tone Low: CC 35
-            if lowToneSlider.integerValue != Int(value) {
+            if let saved = UserDefaults.standard.object(forKey: "RaneSixtyEight_PhonesToneLow") as? Int {
+                let savedVal = UInt8(clamping: saved)
+                if value != savedVal {
+                    sendUserCC(cc: 35, value: savedVal)
+                }
+            } else if lowToneSlider.integerValue != Int(value) {
                 lowToneSlider.integerValue = Int(value)
                 let lowDb = (Double(value) - 64.0) / 64.0 * 6.0
                 lowToneBadge.stringValue = String(format: "%+.1f dB", lowDb)
             }
         } else if cc == 33 {
             // USB-6 Record Select: CC 33 (1: Main Mix, 2: Mic 1, 3: Mic 2)
-            if value >= 1 && value <= 3 {
+            if let saved = UserDefaults.standard.object(forKey: "RaneSixtyEight_Usb6RecordSource") as? Int {
+                let savedVal = UInt8(clamping: saved + 1)
+                if value != savedVal {
+                    sendUserCC(cc: 33, value: savedVal)
+                }
+            } else if value >= 1 && value <= 3 {
                 let seg = Int(value - 1)
                 if usb6RecordSegment.selectedSegment != seg {
                     usb6RecordSegment.selectedSegment = seg
