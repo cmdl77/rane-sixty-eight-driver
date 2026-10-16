@@ -163,10 +163,12 @@ class RaneFlexFxService {
                 startAudioEngine()
                 rescheduleHardwareBeatSyncTimer()
                 RaneMidiService.shared.sendHardwareBpmSync(bpm: bpm, beatPulse: isLinkEnabled)
+                RaneMidiService.shared.sendOledAbletonLinkStatus(enabled: isLinkEnabled)
             } else {
                 clearAllHardwareLeds()
                 rescheduleHardwareBeatSyncTimer()
                 RaneMidiService.shared.sendMute()
+                RaneMidiService.shared.sendOledAbletonLinkStatus(enabled: isLinkEnabled)
             }
             notifyStateChanged()
         }
@@ -210,10 +212,12 @@ class RaneFlexFxService {
                 }
                 rescheduleHardwareBeatSyncTimer()
                 RaneMidiService.shared.sendHardwareBpmSync(bpm: bpm, beatPulse: true)
+                RaneMidiService.shared.sendOledAbletonLinkStatus(enabled: true)
             } else {
                 linkPeers = 0
                 rescheduleHardwareBeatSyncTimer()
                 RaneMidiService.shared.sendHardwareBpmSync(bpm: bpm, beatPulse: false)
+                RaneMidiService.shared.sendOledAbletonLinkStatus(enabled: false)
             }
             notifyStateChanged()
             updateHardwareLeds()

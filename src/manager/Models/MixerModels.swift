@@ -35,7 +35,9 @@ enum RaneProtocol {
 
     enum Opcode {
         static let deviceIdQuery: UInt8 = 0x01
+        static let oledLine1: UInt8 = 0x01
         static let getSetParams: UInt8 = 0x02
+        static let oledLine2: UInt8 = 0x02
         static let getAllControls: UInt8 = 0x04
         static let bulkLedMatrix: UInt8 = 0x09
         static let dspFxParams: UInt8 = 0x18
@@ -47,7 +49,9 @@ enum RaneProtocol {
         static let fxStateReport: UInt8 = 0x54
         static let heartbeat: UInt8 = 0x55
         static let bootloaderEnter: UInt8 = 0x7C
+        static let oledCustomModeOff: UInt8 = 0x7C
         static let bootloaderExit: UInt8 = 0x7D
+        static let oledCustomModeOn: UInt8 = 0x7D
     }
 
     /// Verified 7-byte LPC2468 ROM Security Key (at Flash offset 0x000185B3)

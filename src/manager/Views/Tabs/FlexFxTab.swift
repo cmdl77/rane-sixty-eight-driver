@@ -720,12 +720,12 @@ extension MainWindowController {
             if s.isLinkEnabled {
                 Self.flexFxRefs.oledBpmLabel?.stringValue = "\(String(format: "%.1f", s.bpm)) BPM"
                 Self.flexFxRefs.oledBpmLabel?.textColor = NSColor(red: 0.20, green: 0.95, blue: 0.85, alpha: 1.0)
-                Self.flexFxRefs.oledLinkBadge?.stringValue = "● LINK: \(s.linkPeers) PEER\(s.linkPeers == 1 ? "" : "S")"
+                Self.flexFxRefs.oledLinkBadge?.stringValue = "Ableton Link on"
                 Self.flexFxRefs.oledLinkBadge?.textColor = s.linkPeers > 0 ? NSColor.systemGreen : NSColor.systemOrange
             } else {
                 Self.flexFxRefs.oledBpmLabel?.stringValue = "---.- BPM"
                 Self.flexFxRefs.oledBpmLabel?.textColor = NSColor(white: 0.35, alpha: 1.0)
-                Self.flexFxRefs.oledLinkBadge?.stringValue = "○ INAKTIV"
+                Self.flexFxRefs.oledLinkBadge?.stringValue = "Ableton Link off"
                 Self.flexFxRefs.oledLinkBadge?.textColor = NSColor(white: 0.35, alpha: 1.0)
             }
 
@@ -749,10 +749,10 @@ extension MainWindowController {
             Self.flexFxRefs.oledBpmLabel?.textColor = NSColor(red: 0.20, green: 0.95, blue: 0.85, alpha: 1.0)
 
             if s.isLinkEnabled {
-                Self.flexFxRefs.oledLinkBadge?.stringValue = "● LINK: \(s.linkPeers) PEER\(s.linkPeers == 1 ? "" : "S")"
+                Self.flexFxRefs.oledLinkBadge?.stringValue = "Ableton Link on"
                 Self.flexFxRefs.oledLinkBadge?.textColor = s.linkPeers > 0 ? NSColor.systemGreen : NSColor.systemOrange
             } else {
-                Self.flexFxRefs.oledLinkBadge?.stringValue = "○ STANDALONE (Master)"
+                Self.flexFxRefs.oledLinkBadge?.stringValue = "Ableton Link off"
                 Self.flexFxRefs.oledLinkBadge?.textColor = NSColor(white: 0.60, alpha: 1.0)
             }
         }

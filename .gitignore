@@ -18,3 +18,13 @@ dist/
 *.out
 *.err
 /tmp/
+__pycache__/
+*.pyc
+
+# Extracted / Patched Firmware Binaries (generated locally via ./patch_and_flash_firmware.sh)
+firmware_extracted/
+*.bin
+*.dmg
+*.pkg
+*.zip
+

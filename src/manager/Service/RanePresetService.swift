@@ -32,6 +32,10 @@ public struct RaneMixerPreset: Codable, Equatable {
     public var midiMappings: [String: MidiMapping]?
     public var midiOutMappings: [String: MidiOutMapping]?
 
+    // Tab 4 (System Status): Hardware OLED Greeting Text (5s on startup / preset load)
+    public var oledGreetingLine1: String?
+    public var oledGreetingLine2: String?
+
     public init(
         name: String,
         description: String? = nil,
@@ -49,7 +53,9 @@ public struct RaneMixerPreset: Codable, Equatable {
         midiOutChannel: Int = 1,
         midiInChannel: Int = 17,
         midiMappings: [String: MidiMapping]? = nil,
-        midiOutMappings: [String: MidiOutMapping]? = nil
+        midiOutMappings: [String: MidiOutMapping]? = nil,
+        oledGreetingLine1: String? = nil,
+        oledGreetingLine2: String? = nil
     ) {
         self.name = name
         self.description = description
@@ -68,6 +74,8 @@ public struct RaneMixerPreset: Codable, Equatable {
         self.midiInChannel = midiInChannel
         self.midiMappings = midiMappings
         self.midiOutMappings = midiOutMappings
+        self.oledGreetingLine1 = oledGreetingLine1
+        self.oledGreetingLine2 = oledGreetingLine2
     }
 }
 

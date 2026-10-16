@@ -139,6 +139,29 @@ class RaneMidiService {
     private var hidSeqNum: UInt32 = 1000
     private let hidLock = NSLock()
     private var isRomUnlocked: Bool = false
+    private var isCustomOledModeActive: Bool = false
+    private var oledRevertWorkItem: DispatchWorkItem?
+
+    private let oledGreetingLine1Key = "RaneSixtyEight_OledGreetingLine1_v1"
+    private let oledGreetingLine2Key = "RaneSixtyEight_OledGreetingLine2_v1"
+
+    public var oledGreetingLine1: String {
+        get {
+            return UserDefaults.standard.string(forKey: oledGreetingLine1Key) ?? "HENRY'S RANE68"
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: oledGreetingLine1Key)
+        }
+    }
+
+    public var oledGreetingLine2: String {
+        get {
+            return UserDefaults.standard.string(forKey: oledGreetingLine2Key) ?? "WELCOME BACK!"
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: oledGreetingLine2Key)
+        }
+    }
 
     /// Unmutes the mixer audio engine and designates the active USB port (Opcode 0x52, 5 bytes)
     func sendUnmute(port: UInt8 = RaneProtocol.Port.usbPortA) {
@@ -152,6 +175,112 @@ class RaneMidiService {
         msg.append(RaneProtocol.sysExEnd)
         sendSysEx(msg)
         isRomUnlocked = true
+    }
+
+    /// Formats any string to exactly 14 ASCII characters for a Rane Sixty-Eight OLED line
+    private func formatOled14(_ text: String) -> [UInt8] {
+        var normalized = text
+        if normalized.count > 14 {
+            normalized = normalized
+                .replacingOccurrences(of: "Ableton Link off", with: "AbletonLinkoff")
+                .replacingOccurrences(of: "Ableton Link on", with: "AbletonLink on")
+                .replacingOccurrences(of: "Ableton Link ", with: "AbletonLink ")
+        }
+        let ascii = normalized.unicodeScalars.map { scalar -> UInt8 in
+            let v = scalar.value
+            return (v >= 0x20 && v <= 0x7E) ? UInt8(v) : 0x20
+        }
+        if ascii.count >= 14 {
+            return Array(ascii.prefix(14))
+        } else {
+            return ascii + [UInt8](repeating: 0x20, count: 14 - ascii.count)
+        }
+    }
+
+    /// Enables (0x7D) or disables (0x7C) Custom OLED Mode on the patched Rane Sixty-Eight firmware
+    func setCustomOledMode(_ enabled: Bool) {
+        guard isUsbAttached else { return }
+        if !isRomUnlocked {
+            sendUnmute(port: RaneProtocol.Port.usbPortA)
+            sendHardwareUnlock()
+        }
+        if enabled {
+            sendSysEx([RaneProtocol.sysExStart, RaneProtocol.manufacturerId, RaneProtocol.Opcode.oledCustomModeOn, 0x01, RaneProtocol.sysExEnd])
+            isCustomOledModeActive = true
+        } else {
+            sendSysEx([RaneProtocol.sysExStart, RaneProtocol.manufacturerId, RaneProtocol.Opcode.oledCustomModeOff, 0x00, RaneProtocol.sysExEnd])
+            isCustomOledModeActive = false
+        }
+    }
+
+    /// Writes 14 ASCII characters to Line 1 (0x400000E7) of the hardware OLED display (SysEx 0x01)
+    func sendOledLine1(_ text: String) {
+        guard isUsbAttached else { return }
+        if !isCustomOledModeActive {
+            setCustomOledMode(true)
+        }
+        var msg: [UInt8] = [RaneProtocol.sysExStart, RaneProtocol.manufacturerId, RaneProtocol.Opcode.oledLine1]
+        msg.append(contentsOf: formatOled14(text))
+        msg.append(RaneProtocol.sysExEnd)
+        sendSysEx(msg)
+    }
+
+    /// Writes 14 ASCII characters to Line 2 (0x400000F5) of the hardware OLED display (SysEx 0x02)
+    func sendOledLine2(_ text: String) {
+        guard isUsbAttached else { return }
+        if !isCustomOledModeActive {
+            setCustomOledMode(true)
+        }
+        var msg: [UInt8] = [RaneProtocol.sysExStart, RaneProtocol.manufacturerId, RaneProtocol.Opcode.oledLine2]
+        msg.append(contentsOf: formatOled14(text))
+        msg.append(RaneProtocol.sysExEnd)
+        sendSysEx(msg)
+    }
+
+    /// Displays the user-configured 2-line greeting text on the hardware OLED for 5 seconds, then restores the original display (0x7C)
+    func showOledGreeting(durationSeconds: TimeInterval = 5.0) {
+        guard isUsbAttached else { return }
+        oledRevertWorkItem?.cancel()
+
+        setCustomOledMode(true)
+        sendOledLine1(oledGreetingLine1)
+        sendOledLine2(oledGreetingLine2)
+
+        let work = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            self.setCustomOledMode(false)
+            self.sendHardwareBpmSync(
+                bpm: RaneFlexFxService.shared.bpm,
+                beatPulse: RaneFlexFxService.shared.isLinkEnabled
+            )
+        }
+        oledRevertWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + durationSeconds, execute: work)
+    }
+
+    /// Shows "Ableton Link on" or "Ableton Link off" on OLED Line 2 for 2 seconds, then restores the original mixer display (0x7C)
+    func sendOledAbletonLinkStatus(enabled: Bool, durationSeconds: TimeInterval = 2.0) {
+        guard isUsbAttached else { return }
+        oledRevertWorkItem?.cancel()
+
+        setCustomOledMode(true)
+        let clampedBpm = max(41.0, min(300.0, RaneFlexFxService.shared.bpm))
+        let star = enabled ? "*" : " "
+        let line1 = String(format: "BPM: %-6.1f  %@", clampedBpm, star)
+        sendOledLine1(line1)
+        sendOledLine2(enabled ? "Ableton Link on" : "Ableton Link off")
+
+        let work = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            // Switch back to original firmware OLED display (BPM: / TIME:) via SysEx 0x7C
+            self.setCustomOledMode(false)
+            self.sendHardwareBpmSync(
+                bpm: RaneFlexFxService.shared.bpm,
+                beatPulse: RaneFlexFxService.shared.isLinkEnabled
+            )
+        }
+        oledRevertWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + durationSeconds, execute: work)
     }
 
     /// Synchronizes the hardware OLED display BPM, DSP delay time & Serato asterisk (*) via 14-byte Nibble-Encoded Opcode 0x53
@@ -252,6 +381,7 @@ class RaneMidiService {
             lastReportedState = current
             if current {
                 isRomUnlocked = false
+                isCustomOledModeActive = false
                 // 1. Set Control Point Port A (Opcode 0x52)
                 sendUnmute(port: RaneProtocol.Port.usbPortA)
                 // 2. Unlock LPC2468 Hardware Security Gate (Opcode 0x18)
@@ -260,10 +390,12 @@ class RaneMidiService {
                 resetAllHardwareLeds()
                 // 4. Request complete hardware state dump
                 requestHardwareDump()
-                // 5. Initial BPM Sync push to OLED display
-                sendHardwareBpmSync(bpm: RaneFlexFxService.shared.bpm, beatPulse: true)
+                // 5. Sync BPM and display 5-second startup greeting on OLED (reverts to original display after 5s)
+                sendHardwareBpmSync(bpm: RaneFlexFxService.shared.bpm, beatPulse: RaneFlexFxService.shared.isLinkEnabled)
+                showOledGreeting(durationSeconds: 5.0)
             } else {
                 isRomUnlocked = false
+                isCustomOledModeActive = false
             }
             DispatchQueue.main.async {
                 self.onConnectionStateChanged?(current)
@@ -303,7 +435,7 @@ class RaneMidiService {
         if let idx = sentEchoes.firstIndex(where: { echo in
             // Exact status & number match
             if (echo.status & 0x0F) == (status & 0x0F) && echo.d1 == d1 {
-                let isSentNoteOff = (echo.status & 0xF0 == 0x80) || ((echo.status & 0xF0 == 0x90) && echo.d2 == 0)
+                let isSentNoteOff = (echo.status & 0xF0 == 0x80) || ((echo.status & 0xF0 == 0x90) && d2 == 0)
                 if isIncomingNoteOff && isSentNoteOff {
                     return true
                 }
@@ -409,7 +541,6 @@ class RaneMidiService {
             hidLock.lock()
             let seq = hidSeqNum
             hidSeqNum &+= 1
-            hidLock.unlock()
 
             var pkt = [UInt8](repeating: 0, count: 64)
             pkt[0] = 0x41
@@ -423,6 +554,8 @@ class RaneMidiService {
                 pkt[6 + i] = bytes[i]
             }
             let kr = IOHIDDeviceSetReport(hidDev, kIOHIDReportTypeOutput, 0, pkt, 64)
+            usleep(12000) // 12ms pacing so back-to-back OLED SysEx packets (0x7D, 0x01, 0x02) never collide in FX2 EP1OUTBUF
+            hidLock.unlock()
             if kr == kIOReturnSuccess {
                 return
             }

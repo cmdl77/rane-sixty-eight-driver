@@ -33,6 +33,12 @@ extension MainWindowController {
             outMapDict[target.rawValue] = m
         }
 
+        // Snapshot OLED Greeting Text
+        let greetLine1 = oledGreetingLine1Field?.stringValue ?? RaneMidiService.shared.oledGreetingLine1
+        let greetLine2 = oledGreetingLine2Field?.stringValue ?? RaneMidiService.shared.oledGreetingLine2
+        RaneMidiService.shared.oledGreetingLine1 = greetLine1
+        RaneMidiService.shared.oledGreetingLine2 = greetLine2
+
         return RaneMixerPreset(
             name: name,
             buttonBacklight: backlightState,
@@ -48,7 +54,9 @@ extension MainWindowController {
             midiOutChannel: outCh,
             midiInChannel: inCh,
             midiMappings: inMapDict,
-            midiOutMappings: outMapDict
+            midiOutMappings: outMapDict,
+            oledGreetingLine1: greetLine1,
+            oledGreetingLine2: greetLine2
         )
     }
 
@@ -121,6 +129,19 @@ extension MainWindowController {
             }
             learn.applyOutMappings(loadedOut)
             RaneFlexFxService.shared.updateHardwareLeds()
+        }
+
+        // 5. Tab 4 (System Status) - Hardware OLED Greeting Text
+        if let g1 = preset.oledGreetingLine1 {
+            RaneMidiService.shared.oledGreetingLine1 = g1
+            oledGreetingLine1Field?.stringValue = g1
+        }
+        if let g2 = preset.oledGreetingLine2 {
+            RaneMidiService.shared.oledGreetingLine2 = g2
+            oledGreetingLine2Field?.stringValue = g2
+        }
+        if preset.oledGreetingLine1 != nil || preset.oledGreetingLine2 != nil {
+            RaneMidiService.shared.showOledGreeting(durationSeconds: 5.0)
         }
 
         appendSysLog("Mixer-Preset aktiviert: \"\(preset.name)\"")

@@ -77,6 +77,8 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     var firmwareStatusLabel: NSTextField!
     var cpuStatusLabel: NSTextField!
     var sysLogTextView: NSTextView!
+    var oledGreetingLine1Field: NSTextField!
+    var oledGreetingLine2Field: NSTextField!
 
     // Header Badges & Controls
     var headerCpuBadge: CpuBadgeView!
@@ -130,6 +132,9 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         setupModernUI()
         setupMidiListener()
         refreshStatus()
+        if RaneMidiService.shared.isConnected {
+            RaneMidiService.shared.showOledGreeting(durationSeconds: 5.0)
+        }
 
         RaneCpuService.shared.onCpuUpdate = { [weak self] usage in
             DispatchQueue.main.async {
@@ -169,6 +174,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         let inMidiIdx = midiInPopup?.indexOfSelectedItem ?? 16
         let midiLogText = midiLogTextView?.string ?? ""
         let sysLogText = sysLogTextView?.string ?? ""
+        onOledGreetingFieldEdited()
 
         // 2. Remove old views
         contentView.subviews.forEach { $0.removeFromSuperview() }

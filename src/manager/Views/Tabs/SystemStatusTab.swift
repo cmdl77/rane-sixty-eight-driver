@@ -88,6 +88,88 @@ extension MainWindowController {
         page.addArrangedSubview(diagInsetCard)
         diagInsetCard.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
 
+        // Section: Hardware OLED Startup Greeting (5s Display)
+        let oledOuter = NSStackView()
+        oledOuter.orientation = .vertical
+        oledOuter.alignment = .leading
+        oledOuter.spacing = 8
+
+        let oledTopBar = createSectionTopBar(
+            icon: "display",
+            title: Localization.tr(en: "Hardware OLED Startup Greeting (5s Display & Preset)", de: "Hardware OLED Begrüßungstext (5 Sek. beim App-Start & im Preset)"),
+            tintColor: .systemGreen
+        )
+        oledOuter.addArrangedSubview(oledTopBar)
+
+        let oledRow = NSStackView()
+        oledRow.orientation = .horizontal
+        oledRow.alignment = .centerY
+        oledRow.spacing = 10
+
+        let line1Lbl = NSTextField(labelWithString: Localization.tr(en: "Line 1 (14 chars):", de: "Zeile 1 (max. 14 Z.):"))
+        line1Lbl.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        line1Lbl.textColor = NSColor(white: 0.78, alpha: 1.0)
+
+        let line1Field = NSTextField(string: RaneMidiService.shared.oledGreetingLine1)
+        line1Field.placeholderString = "HENRY'S RANE68"
+        line1Field.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
+        line1Field.textColor = NSColor.systemGreen
+        line1Field.backgroundColor = NSColor(red: 0.08, green: 0.11, blue: 0.09, alpha: 1.0)
+        line1Field.isBezeled = true
+        line1Field.bezelStyle = .roundedBezel
+        line1Field.target = self
+        line1Field.action = #selector(onOledGreetingFieldEdited)
+        line1Field.translatesAutoresizingMaskIntoConstraints = false
+        line1Field.widthAnchor.constraint(equalToConstant: 155).isActive = true
+        self.oledGreetingLine1Field = line1Field
+
+        let line2Lbl = NSTextField(labelWithString: Localization.tr(en: "Line 2 (14 chars):", de: "Zeile 2 (max. 14 Z.):"))
+        line2Lbl.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        line2Lbl.textColor = NSColor(white: 0.78, alpha: 1.0)
+
+        let line2Field = NSTextField(string: RaneMidiService.shared.oledGreetingLine2)
+        line2Field.placeholderString = "WELCOME BACK!"
+        line2Field.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
+        line2Field.textColor = NSColor.systemGreen
+        line2Field.backgroundColor = NSColor(red: 0.08, green: 0.11, blue: 0.09, alpha: 1.0)
+        line2Field.isBezeled = true
+        line2Field.bezelStyle = .roundedBezel
+        line2Field.target = self
+        line2Field.action = #selector(onOledGreetingFieldEdited)
+        line2Field.translatesAutoresizingMaskIntoConstraints = false
+        line2Field.widthAnchor.constraint(equalToConstant: 155).isActive = true
+        self.oledGreetingLine2Field = line2Field
+
+        let testOledBtn = NSButton(
+            title: Localization.tr(en: "📺 Save & Show 5s on Mixer", de: "📺 Speichern & 5s am Mixer zeigen"),
+            target: self,
+            action: #selector(onSaveAndTestOledGreetingClicked)
+        )
+        testOledBtn.bezelStyle = .rounded
+        testOledBtn.controlSize = .regular
+
+        oledRow.addArrangedSubview(line1Lbl)
+        oledRow.addArrangedSubview(line1Field)
+        oledRow.addArrangedSubview(line2Lbl)
+        oledRow.addArrangedSubview(line2Field)
+        oledRow.addArrangedSubview(testOledBtn)
+
+        let oledInnerCard = oledRow.wrapInCard(
+            cornerRadius: 8,
+            borderColor: NSColor(white: 0.28, alpha: 0.45),
+            fillColor: NSColor(red: 0.176, green: 0.180, blue: 0.200, alpha: 1.0),
+            padding: NSEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
+        )
+        oledOuter.addArrangedSubview(oledInnerCard)
+        oledInnerCard.widthAnchor.constraint(equalTo: oledOuter.widthAnchor).isActive = true
+
+        let oledInsetCard = oledOuter.wrapInInsetCard(
+            cornerRadius: 12,
+            padding: NSEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
+        )
+        page.addArrangedSubview(oledInsetCard)
+        oledInsetCard.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
+
         let sec2Outer = NSStackView()
         sec2Outer.orientation = .vertical
         sec2Outer.alignment = .leading
@@ -127,7 +209,7 @@ extension MainWindowController {
         )
         page.addArrangedSubview(scrollCard)
         scrollCard.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
-        scroll.heightAnchor.constraint(equalToConstant: 140).isActive = true
+        scroll.heightAnchor.constraint(equalToConstant: 110).isActive = true
 
         let bottomSpacer = NSView()
         bottomSpacer.setContentHuggingPriority(.defaultLow, for: .vertical)
@@ -137,6 +219,23 @@ extension MainWindowController {
     }
 
     // MARK: - Action Handlers (Tab 4)
+    @objc func onOledGreetingFieldEdited() {
+        let l1 = String((oledGreetingLine1Field?.stringValue ?? "").prefix(14))
+        let l2 = String((oledGreetingLine2Field?.stringValue ?? "").prefix(14))
+        oledGreetingLine1Field?.stringValue = l1
+        oledGreetingLine2Field?.stringValue = l2
+        RaneMidiService.shared.oledGreetingLine1 = l1
+        RaneMidiService.shared.oledGreetingLine2 = l2
+    }
+
+    @objc func onSaveAndTestOledGreetingClicked() {
+        onOledGreetingFieldEdited()
+        let l1 = RaneMidiService.shared.oledGreetingLine1
+        let l2 = RaneMidiService.shared.oledGreetingLine2
+        RaneMidiService.shared.showOledGreeting(durationSeconds: 5.0)
+        appendSysLog("OLED Begrüßungstext gespeichert & für 5 Sek. gesendet: [\(l1)] / [\(l2)]")
+    }
+
     @objc func onRestartDriverClicked() {
         appendSysLog("Starte CoreAudio & MIDI Dienst neu...")
         DispatchQueue.global().async {
