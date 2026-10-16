@@ -3,7 +3,43 @@
 
 import Cocoa
 
-extension MainWindowController {
+final class Oled14CharFormatter: Formatter {
+    override func string(for obj: Any?) -> String? {
+        guard let str = obj as? String else { return nil }
+        return String(str.prefix(14))
+    }
+
+    override func getObjectValue(
+        _ obj: AutoreleasingUnsafeMutablePointer<AnyObject?>?,
+        for string: String,
+        errorDescription error: AutoreleasingUnsafeMutablePointer<NSString?>?
+    ) -> Bool {
+        obj?.pointee = String(string.prefix(14)) as NSString
+        return true
+    }
+
+    override func isPartialStringValid(
+        _ partialStringPtr: AutoreleasingUnsafeMutablePointer<NSString>,
+        proposedSelectedRange proposedSelRangePtr: NSRangePointer?,
+        originalString origString: String,
+        originalSelectedRange origSelRange: NSRange,
+        errorDescription error: AutoreleasingUnsafeMutablePointer<NSString?>?
+    ) -> Bool {
+        let current = partialStringPtr.pointee as String
+        if current.count > 14 {
+            let clamped = String(current.prefix(14))
+            partialStringPtr.pointee = clamped as NSString
+            if let rangePtr = proposedSelRangePtr {
+                rangePtr.pointee = NSRange(location: min(rangePtr.pointee.location, 14), length: 0)
+            }
+            NSSound.beep()
+            return false
+        }
+        return true
+    }
+}
+
+extension MainWindowController: NSTextFieldDelegate {
     func buildSystemPage() -> NSView {
         let page = NSStackView()
         page.orientation = .vertical
@@ -106,38 +142,52 @@ extension MainWindowController {
         oledRow.alignment = .centerY
         oledRow.spacing = 10
 
-        let line1Lbl = NSTextField(labelWithString: Localization.tr(en: "Line 1 (14 chars):", de: "Zeile 1 (max. 14 Z.):"))
+        // Exakte Monospace-Schriftart (Menlo Bold 13pt) & exakte 14-Zeichen-Feldbreite berechnen
+        let oledMonoFont = NSFont(name: "Menlo-Bold", size: 13) ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .bold)
+        let exact14CharsWidth = ceil(("MMMMMMMMMMMMMM" as NSString).size(withAttributes: [.font: oledMonoFont]).width) + 12.0
+
+        let line1Lbl = NSTextField(labelWithString: Localization.tr(en: "Line 1 (14 chars):", de: "Zeile 1 (14 Z.):"))
         line1Lbl.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
         line1Lbl.textColor = NSColor(white: 0.78, alpha: 1.0)
 
-        let line1Field = NSTextField(string: RaneMidiService.shared.oledGreetingLine1)
+        let line1Field = NSTextField(string: String(RaneMidiService.shared.oledGreetingLine1.prefix(14)))
         line1Field.placeholderString = "HENRY'S RANE68"
-        line1Field.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
+        line1Field.font = oledMonoFont
         line1Field.textColor = NSColor.systemGreen
         line1Field.backgroundColor = NSColor(red: 0.08, green: 0.11, blue: 0.09, alpha: 1.0)
         line1Field.isBezeled = true
         line1Field.bezelStyle = .roundedBezel
+        line1Field.usesSingleLineMode = true
+        line1Field.cell?.wraps = false
+        line1Field.cell?.isScrollable = true
+        line1Field.formatter = Oled14CharFormatter()
+        line1Field.delegate = self
         line1Field.target = self
         line1Field.action = #selector(onOledGreetingFieldEdited)
         line1Field.translatesAutoresizingMaskIntoConstraints = false
-        line1Field.widthAnchor.constraint(equalToConstant: 155).isActive = true
+        line1Field.widthAnchor.constraint(equalToConstant: exact14CharsWidth).isActive = true
         self.oledGreetingLine1Field = line1Field
 
-        let line2Lbl = NSTextField(labelWithString: Localization.tr(en: "Line 2 (14 chars):", de: "Zeile 2 (max. 14 Z.):"))
+        let line2Lbl = NSTextField(labelWithString: Localization.tr(en: "Line 2 (14 chars):", de: "Zeile 2 (14 Z.):"))
         line2Lbl.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
         line2Lbl.textColor = NSColor(white: 0.78, alpha: 1.0)
 
-        let line2Field = NSTextField(string: RaneMidiService.shared.oledGreetingLine2)
-        line2Field.placeholderString = "WELCOME BACK!"
-        line2Field.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
+        let line2Field = NSTextField(string: String(RaneMidiService.shared.oledGreetingLine2.prefix(14)))
+        line2Field.placeholderString = "WELCOME BACK! "
+        line2Field.font = oledMonoFont
         line2Field.textColor = NSColor.systemGreen
         line2Field.backgroundColor = NSColor(red: 0.08, green: 0.11, blue: 0.09, alpha: 1.0)
         line2Field.isBezeled = true
         line2Field.bezelStyle = .roundedBezel
+        line2Field.usesSingleLineMode = true
+        line2Field.cell?.wraps = false
+        line2Field.cell?.isScrollable = true
+        line2Field.formatter = Oled14CharFormatter()
+        line2Field.delegate = self
         line2Field.target = self
         line2Field.action = #selector(onOledGreetingFieldEdited)
         line2Field.translatesAutoresizingMaskIntoConstraints = false
-        line2Field.widthAnchor.constraint(equalToConstant: 155).isActive = true
+        line2Field.widthAnchor.constraint(equalToConstant: exact14CharsWidth).isActive = true
         self.oledGreetingLine2Field = line2Field
 
         let testOledBtn = NSButton(
@@ -218,12 +268,26 @@ extension MainWindowController {
         return page
     }
 
-    // MARK: - Action Handlers (Tab 4)
+    // MARK: - Action & Delegate Handlers (Tab 4)
+    func controlTextDidChange(_ obj: Notification) {
+        guard let field = obj.object as? NSTextField else { return }
+        if field === oledGreetingLine1Field || field === oledGreetingLine2Field {
+            if field.stringValue.count > 14 {
+                field.stringValue = String(field.stringValue.prefix(14))
+            }
+            onOledGreetingFieldEdited()
+        }
+    }
+
     @objc func onOledGreetingFieldEdited() {
         let l1 = String((oledGreetingLine1Field?.stringValue ?? "").prefix(14))
         let l2 = String((oledGreetingLine2Field?.stringValue ?? "").prefix(14))
-        oledGreetingLine1Field?.stringValue = l1
-        oledGreetingLine2Field?.stringValue = l2
+        if oledGreetingLine1Field?.stringValue != l1 {
+            oledGreetingLine1Field?.stringValue = l1
+        }
+        if oledGreetingLine2Field?.stringValue != l2 {
+            oledGreetingLine2Field?.stringValue = l2
+        }
         RaneMidiService.shared.oledGreetingLine1 = l1
         RaneMidiService.shared.oledGreetingLine2 = l2
     }
@@ -256,3 +320,4 @@ extension MainWindowController {
         refreshStatus()
     }
 }
+
