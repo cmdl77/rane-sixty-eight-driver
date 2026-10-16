@@ -237,41 +237,46 @@ static void onDeviceMatched(void* context, IOReturn result, void* sender, IOHIDD
     // 1. Send Opcode 0x36: InitHid command (64 bytes) to activate HID reporting engine
     uint8_t pktInit[64] = {0};
     pktInit[0] = 0x36;
-    pktInit[1] = 0xFF;
-    pktInit[2] = 0xFF;
-    pktInit[3] = 0xFF;
-    pktInit[4] = 0xFF;
+    pktInit[1] = 0x00; pktInit[2] = 0x00; pktInit[3] = 0x00; pktInit[4] = 0x01;
     pktInit[5] = 0x01;
     IOHIDDeviceSetReport(gHIDDevice, kIOHIDReportTypeOutput, 0, pktInit, sizeof(pktInit));
     usleep(20000);
 
-    // 2. Send Opcode 0x41 with SysEx 0x04 (Get All Controls / Initial Dump)
-    uint8_t pktSysEx[64] = {0};
-    pktSysEx[0] = 0x41;
-    pktSysEx[1] = 0x00; pktSysEx[2] = 0x00; pktSysEx[3] = 0x00; pktSysEx[4] = 0x01;
-    pktSysEx[5] = 0x05;
-    pktSysEx[6] = 0xF0;
-    pktSysEx[7] = 0x17;
-    pktSysEx[8] = 0x04;
-    pktSysEx[9] = 0x00;
-    pktSysEx[10] = 0xF7;
-    IOHIDDeviceSetReport(gHIDDevice, kIOHIDReportTypeOutput, 0, pktSysEx, sizeof(pktSysEx));
-    usleep(20000);
-
-    // 3. Send Opcode 0x41 with SysEx 0x52 (Unmute Handshake)
+    // 2. Send Opcode 0x41 with SysEx 0x52 (Set Control Point Port A, 5 bytes: F0 17 52 00 F7)
     uint8_t pktUnmute[64] = {0};
     pktUnmute[0] = 0x41;
     pktUnmute[1] = 0x00; pktUnmute[2] = 0x00; pktUnmute[3] = 0x00; pktUnmute[4] = 0x02;
-    pktUnmute[5] = 0x06;
+    pktUnmute[5] = 0x05;
     pktUnmute[6] = 0xF0;
     pktUnmute[7] = 0x17;
     pktUnmute[8] = 0x52;
-    pktUnmute[9] = 0x07;
-    pktUnmute[10] = 0x01;
-    pktUnmute[11] = 0xF7;
+    pktUnmute[9] = 0x00;
+    pktUnmute[10] = 0xF7;
     IOHIDDeviceSetReport(gHIDDevice, kIOHIDReportTypeOutput, 0, pktUnmute, sizeof(pktUnmute));
+    usleep(20000);
 
-    RLOG("Sixty-Eight HID activated & hardware UNMUTED!");
+    // 3. Send Opcode 0x41 with SysEx 0x18 (LPC2468 ROM Security Unlock, 11 bytes)
+    uint8_t pktUnlock[64] = {0};
+    pktUnlock[0] = 0x41;
+    pktUnlock[1] = 0x00; pktUnlock[2] = 0x00; pktUnlock[3] = 0x00; pktUnlock[4] = 0x03;
+    pktUnlock[5] = 0x0B;
+    const uint8_t unlockSysEx[11] = {0xF0, 0x17, 0x18, 0x02, 0x43, 0x88, 0x38, 0x03, 0x6A, 0x01, 0xF7};
+    memcpy(&pktUnlock[6], unlockSysEx, sizeof(unlockSysEx));
+    IOHIDDeviceSetReport(gHIDDevice, kIOHIDReportTypeOutput, 0, pktUnlock, sizeof(pktUnlock));
+    usleep(20000);
+
+    // 4. Send Opcode 0x41 with SysEx 0x04 (Get All Controls / Initial Dump, 4 bytes: F0 17 04 F7)
+    uint8_t pktSysEx[64] = {0};
+    pktSysEx[0] = 0x41;
+    pktSysEx[1] = 0x00; pktSysEx[2] = 0x00; pktSysEx[3] = 0x00; pktSysEx[4] = 0x04;
+    pktSysEx[5] = 0x04;
+    pktSysEx[6] = 0xF0;
+    pktSysEx[7] = 0x17;
+    pktSysEx[8] = 0x04;
+    pktSysEx[9] = 0xF7;
+    IOHIDDeviceSetReport(gHIDDevice, kIOHIDReportTypeOutput, 0, pktSysEx, sizeof(pktSysEx));
+
+    RLOG("Sixty-Eight HID activated, ROM unlocked & Control Point set!");
     pthread_mutex_unlock(&gDeviceMutex);
 }
 

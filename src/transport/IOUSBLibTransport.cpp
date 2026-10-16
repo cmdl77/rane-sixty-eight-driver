@@ -366,12 +366,19 @@ void IOUSBLibTransport::onHIDInputReport(uint8_t* report, CFIndex length) {
 }
 
 bool IOUSBLibTransport::sendMidiSysEx(const uint8_t *sysexData, size_t length) {
-    if (mHIDDevice) {
+    if (mHIDDevice && sysexData && length > 0) {
+        static uint32_t sHidSeq = 1;
+        uint32_t seq = __sync_fetch_and_add(&sHidSeq, 1);
         uint8_t pkt[64] = {0};
-        pkt[0] = 0x04;
-        size_t copyLen = (length < 63) ? length : 63;
-        memcpy(&pkt[1], sysexData, copyLen);
-        IOReturn kr = IOHIDDeviceSetReport(mHIDDevice, kIOHIDReportTypeOutput, 0, pkt, (CFIndex)(copyLen + 1));
+        pkt[0] = 0x41;
+        pkt[1] = (uint8_t)((seq >> 24) & 0xFF);
+        pkt[2] = (uint8_t)((seq >> 16) & 0xFF);
+        pkt[3] = (uint8_t)((seq >> 8) & 0xFF);
+        pkt[4] = (uint8_t)(seq & 0xFF);
+        size_t copyLen = (length < 58) ? length : 58;
+        pkt[5] = (uint8_t)copyLen;
+        memcpy(&pkt[6], sysexData, copyLen);
+        IOReturn kr = IOHIDDeviceSetReport(mHIDDevice, kIOHIDReportTypeOutput, 0, pkt, 64);
         RLOG("[sendMidiSysEx] IOHIDDeviceSetReport %zu bytes kr: 0x%08x", copyLen, kr);
         return (kr == kIOReturnSuccess);
     }
@@ -389,25 +396,27 @@ bool IOUSBLibTransport::sendHardwareHandshake() {
         uint8_t portByte = (mCurrentPID == RANE_PID_SIXTY_EIGHT_B) ? RANE_USB_PORT_B : RANE_USB_PORT_A;
 
         // 1. Set Control Point / Unmute Audio Engine (Opcode 0x52, 5 bytes): F0 17 52 <port> F7
-        uint8_t pktUnmute[6] = { 0x04, RANE_MIDI_STATUS_SYS_EX, RANE_MIDI_SYSEX_RANE_ID, RANE_SYSEX_OP_UNMUTE, portByte, RANE_MIDI_SYSEX_EOX };
-        IOReturn kr1 = IOHIDDeviceSetReport(mHIDDevice, kIOHIDReportTypeOutput, 0, pktUnmute, sizeof(pktUnmute));
-        RLOG("[Handshake] Set Control Point & Audio Unmute (Port %u) kr: 0x%08x", portByte, kr1);
-
+        const uint8_t sysexUnmute[5] = { RANE_MIDI_STATUS_SYS_EX, RANE_MIDI_SYSEX_RANE_ID, RANE_SYSEX_OP_UNMUTE, portByte, RANE_MIDI_SYSEX_EOX };
+        sendMidiSysEx(sysexUnmute, sizeof(sysexUnmute));
         usleep(10000);
 
-        // 2. Bulk LED Matrix Clear: Clears all LEDs on the mixer in 1 ms (Opcode 0x09, 12 bytes + report header)
-        uint8_t pktClearLeds[14] = { 0x04, RANE_MIDI_STATUS_SYS_EX, RANE_MIDI_SYSEX_RANE_ID, RANE_SYSEX_OP_BULK_LED,
-                                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, RANE_MIDI_SYSEX_EOX };
-        IOHIDDeviceSetReport(mHIDDevice, kIOHIDReportTypeOutput, 0, pktClearLeds, sizeof(pktClearLeds));
-
+        // 2. LPC2468 ROM Security Unlock (Opcode 0x18, 11 bytes): F0 17 18 02 43 88 38 03 6A 01 F7
+        const uint8_t sysexUnlock[11] = { RANE_MIDI_STATUS_SYS_EX, RANE_MIDI_SYSEX_RANE_ID, RANE_SYSEX_OP_SECURITY_UNLOCK,
+                                          0x02, 0x43, 0x88, 0x38, 0x03, 0x6A, 0x01, RANE_MIDI_SYSEX_EOX };
+        sendMidiSysEx(sysexUnlock, sizeof(sysexUnlock));
         usleep(10000);
 
-        // 3. Request Complete Hardware Controls Dump (Opcode 0x04, 4 bytes): F0 17 04 F7
-        uint8_t pktGetAll[5] = { 0x04, RANE_MIDI_STATUS_SYS_EX, RANE_MIDI_SYSEX_RANE_ID, RANE_SYSEX_OP_GET_ALL, RANE_MIDI_SYSEX_EOX };
-        IOReturn kr2 = IOHIDDeviceSetReport(mHIDDevice, kIOHIDReportTypeOutput, 0, pktGetAll, sizeof(pktGetAll));
-        RLOG("[Handshake] Request Full Hardware Controls Dump kr: 0x%08x", kr2);
+        // 3. Bulk LED Matrix Clear: Clears all LEDs on the mixer in 1 ms (Opcode 0x09, 13 bytes)
+        const uint8_t sysexClearLeds[13] = { RANE_MIDI_STATUS_SYS_EX, RANE_MIDI_SYSEX_RANE_ID, RANE_SYSEX_OP_BULK_LED,
+                                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, RANE_MIDI_SYSEX_EOX };
+        sendMidiSysEx(sysexClearLeds, sizeof(sysexClearLeds));
+        usleep(10000);
 
-        RLOG("Rane Sixty-Eight hardware handshake completed successfully!");
+        // 4. Request Complete Hardware Controls Dump (Opcode 0x04, 4 bytes): F0 17 04 F7
+        const uint8_t sysexGetAll[4] = { RANE_MIDI_STATUS_SYS_EX, RANE_MIDI_SYSEX_RANE_ID, RANE_SYSEX_OP_GET_ALL, RANE_MIDI_SYSEX_EOX };
+        sendMidiSysEx(sysexGetAll, sizeof(sysexGetAll));
+
+        RLOG("Rane Sixty-Eight hardware handshake & ROM unlock completed successfully!");
         return true;
     }
 

@@ -169,9 +169,13 @@ class RaneFlexFxService {
                 }
                 updateHardwareLeds()
                 startAudioEngine()
+                rescheduleHardwareBeatSyncTimer()
+                RaneMidiService.shared.sendHardwareBpmSync(bpm: bpm, beatPulse: true)
             } else {
                 rane_link_enable(false)
                 clearAllHardwareLeds()
+                rescheduleHardwareBeatSyncTimer()
+                RaneMidiService.shared.sendMute()
             }
             notifyStateChanged()
         }
@@ -188,7 +192,15 @@ class RaneFlexFxService {
         didSet { notifyStateChanged() }
     }
     var bpm: Double = 124.0 {
-        didSet { notifyStateChanged() }
+        didSet {
+            notifyStateChanged()
+            if isModuleEnabled {
+                RaneMidiService.shared.sendHardwareBpmSync(bpm: bpm, beatPulse: true)
+                if abs(bpm - lastSyncedTimerBpm) >= 0.05 {
+                    rescheduleHardwareBeatSyncTimer()
+                }
+            }
+        }
     }
     var isEnabled: Bool = true {
         didSet {
@@ -289,11 +301,35 @@ class RaneFlexFxService {
         ptr.storeBytes(of: Float(sampleRate), toByteOffset: 32, as: Float.self)
     }
 
-    // Link Polling
+    // Link Polling & Hardware OLED Beat-Sync Timer
     private var linkPollTimer: DispatchSourceTimer?
+    private var hwBeatSyncTimer: DispatchSourceTimer?
+    private var lastSyncedTimerBpm: Double = 0.0
     private var currentBeatIndex: Int = 0
     private var lastTapTime: TimeInterval = 0
     private var tapTimes: [TimeInterval] = []
+
+    /// Schedules a high-precision beat clock that flashes the Serato asterisk (*) and updates BPM on the Sixty-Eight OLED display
+    private func rescheduleHardwareBeatSyncTimer() {
+        hwBeatSyncTimer?.cancel()
+        hwBeatSyncTimer = nil
+
+        guard isModuleEnabled else { return }
+        let activeBpm = max(41.0, min(300.0, bpm))
+        lastSyncedTimerBpm = activeBpm
+        let beatIntervalMs = max(200, Int(round((60.0 / activeBpm) * 1000.0)))
+
+        let bTimer = DispatchSource.makeTimerSource(queue: DispatchQueue.main)
+        bTimer.schedule(deadline: .now() + .milliseconds(beatIntervalMs), repeating: .milliseconds(beatIntervalMs))
+        bTimer.setEventHandler { [weak self] in
+            guard let self = self, self.isModuleEnabled else { return }
+            self.currentBeatIndex = (self.currentBeatIndex + 1) % 4
+            self.onBeatPulse?(self.currentBeatIndex)
+            RaneMidiService.shared.sendHardwareBpmSync(bpm: self.bpm, beatPulse: true)
+        }
+        bTimer.resume()
+        hwBeatSyncTimer = bTimer
+    }
 
     // MARK: - CoreAudio Real-Time Streaming State
     private(set) var audioDeviceID: AudioDeviceID = AudioDeviceID(kAudioDeviceUnknown)
@@ -394,11 +430,13 @@ class RaneFlexFxService {
             self.inputGain = max(0.0, min(2.0, savedGain))
         }
         setupNativeAbletonLink()
+        rescheduleHardwareBeatSyncTimer()
         startAudioEngine()
         registerDeviceListener()
     }
 
     deinit {
+        hwBeatSyncTimer?.cancel()
         stopAudioEngine()
         scratchInL.deallocate()
         scratchInR.deallocate()

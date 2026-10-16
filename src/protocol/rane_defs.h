@@ -63,9 +63,12 @@ extern "C" {
 #define RANE_SYSEX_OP_PARAMS            0x02  /* Get/Set Hardware Parameters */
 #define RANE_SYSEX_OP_GET_ALL           0x04  /* Request full hardware controls dump (4 bytes: F0 17 04 F7) */
 #define RANE_SYSEX_OP_BULK_LED          0x09  /* Bulk LED Matrix Set (9 payload bytes, 12 bytes total) */
-#define RANE_SYSEX_OP_DSP_FX            0x18  /* Hardware DSP Effect & Beat Division */
-#define RANE_SYSEX_OP_UNMUTE            0x52  /* Audio Engine Unmute / Set Control Point (5 bytes: F0 17 52 <port> F7) */
-#define RANE_SYSEX_OP_MUTE              0x53  /* Audio Engine Mute */
+#define RANE_SYSEX_OP_DSP_FX            0x18  /* Hardware Security Unlock (11 bytes: F0 17 18 02 43 88 38 03 6A 01 F7) */
+#define RANE_SYSEX_OP_SECURITY_UNLOCK   0x18  /* Alias for LPC2468 ROM Magic Key Unlock */
+#define RANE_SYSEX_OP_UNMUTE            0x52  /* Set Control Point (5 bytes: F0 17 52 <port> F7) */
+#define RANE_SYSEX_OP_MUTE              0x53  /* Legacy alias for 0x53 */
+#define RANE_SYSEX_OP_BPM_SYNC          0x53  /* Serato BPM & Asterisk Sync (14 bytes nibble-encoded) */
+#define RANE_SYSEX_OP_FX_STATE          0x54  /* Hardware FlexFX State Report (12 bytes) */
 #define RANE_SYSEX_OP_HEARTBEAT         0x55  /* Hardware Heartbeat ping */
 #define RANE_SYSEX_OP_BOOTLOADER_ENTER  0x7C  /* Enter Bootloader mode */
 #define RANE_SYSEX_OP_BOOTLOADER_EXIT   0x7D  /* Exit Bootloader mode */

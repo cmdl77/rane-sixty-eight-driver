@@ -39,12 +39,19 @@ enum RaneProtocol {
         static let getAllControls: UInt8 = 0x04
         static let bulkLedMatrix: UInt8 = 0x09
         static let dspFxParams: UInt8 = 0x18
+        static let securityUnlock: UInt8 = 0x18
         static let audioUnmute: UInt8 = 0x52
+        static let setControlPoint: UInt8 = 0x52
         static let audioMute: UInt8 = 0x53
+        static let seratoBpmSync: UInt8 = 0x53
+        static let fxStateReport: UInt8 = 0x54
         static let heartbeat: UInt8 = 0x55
         static let bootloaderEnter: UInt8 = 0x7C
         static let bootloaderExit: UInt8 = 0x7D
     }
+
+    /// Verified 7-byte LPC2468 ROM Security Key (at Flash offset 0x000185B3)
+    static let romUnlockKey: [UInt8] = [0x02, 0x43, 0x88, 0x38, 0x03, 0x6A, 0x01]
 
     enum Port {
         static let usbPortA: UInt8 = 0x00

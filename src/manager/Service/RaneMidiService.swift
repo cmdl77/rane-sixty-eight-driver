@@ -136,14 +136,65 @@ class RaneMidiService {
         sendSysEx(msg)
     }
 
-    /// Unmutes the mixer audio engine and designates the active USB port (Opcode 0x52)
+    private var hidSeqNum: UInt32 = 1000
+    private let hidLock = NSLock()
+    private var isRomUnlocked: Bool = false
+
+    /// Unmutes the mixer audio engine and designates the active USB port (Opcode 0x52, 5 bytes)
     func sendUnmute(port: UInt8 = RaneProtocol.Port.usbPortA) {
         sendSysEx([RaneProtocol.sysExStart, RaneProtocol.manufacturerId, RaneProtocol.Opcode.audioUnmute, port, RaneProtocol.sysExEnd])
     }
 
-    /// Mutes the mixer audio engine (Opcode 0x53)
+    /// Unlocks the LPC2468 hardware security gate using the verified 7-byte ROM key (Opcode 0x18, 11 bytes)
+    func sendHardwareUnlock() {
+        var msg: [UInt8] = [RaneProtocol.sysExStart, RaneProtocol.manufacturerId, RaneProtocol.Opcode.securityUnlock]
+        msg.append(contentsOf: RaneProtocol.romUnlockKey)
+        msg.append(RaneProtocol.sysExEnd)
+        sendSysEx(msg)
+        isRomUnlocked = true
+    }
+
+    /// Synchronizes the hardware OLED display BPM, DSP delay time & Serato asterisk (*) via 14-byte Nibble-Encoded Opcode 0x53
+    func sendHardwareBpmSync(bpm: Double, beatPulse: Bool = true) {
+        guard isUsbAttached else { return }
+        if !isRomUnlocked {
+            sendUnmute(port: RaneProtocol.Port.usbPortA)
+            sendHardwareUnlock()
+        }
+        let clampedBpm = max(41.0, min(300.0, bpm))
+        let bpmInt = UInt16(round(clampedBpm * 100.0))
+        let hiByte = UInt8((bpmInt >> 8) & 0xFF)
+        let loByte = UInt8(bpmInt & 0xFF)
+        let astNib: UInt8 = beatPulse ? 0x01 : 0x00
+
+        let sysex14: [UInt8] = [
+            RaneProtocol.sysExStart,
+            RaneProtocol.manufacturerId,
+            RaneProtocol.Opcode.seratoBpmSync,
+            0x00, 0x02,                         // Mode = 2 (Serato Sync)
+            0x00, 0x01,                         // Beat Sync = 1
+            (hiByte >> 4) & 0x0F, hiByte & 0x0F, // BPM High Byte Nibbles
+            (loByte >> 4) & 0x0F, loByte & 0x0F, // BPM Low Byte Nibbles
+            0x00, astNib,                       // Asterisk Blink Trigger
+            RaneProtocol.sysExEnd
+        ]
+        sendSysEx(sysex14)
+    }
+
+    /// Releases Serato BPM Sync lock (returns mixer OLED display to manual/standalone mode)
     func sendMute() {
-        sendSysEx([RaneProtocol.sysExStart, RaneProtocol.manufacturerId, RaneProtocol.Opcode.audioMute, RaneProtocol.sysExEnd])
+        let sysexRelease: [UInt8] = [
+            RaneProtocol.sysExStart,
+            RaneProtocol.manufacturerId,
+            RaneProtocol.Opcode.seratoBpmSync,
+            0x00, 0x00,
+            0x00, 0x00,
+            0x00, 0x00,
+            0x00, 0x00,
+            0x00, 0x00,
+            RaneProtocol.sysExEnd
+        ]
+        sendSysEx(sysexRelease)
     }
 
     func isEndpointOnline(_ endpoint: MIDIEndpointRef) -> Bool {
@@ -200,12 +251,19 @@ class RaneMidiService {
         if current != lastReportedState {
             lastReportedState = current
             if current {
-                // 1. Instant full blank of all hardware LEDs in 1 ms
-                resetAllHardwareLeds()
-                // 2. Unmute Audio Engine Handshake
+                isRomUnlocked = false
+                // 1. Set Control Point Port A (Opcode 0x52)
                 sendUnmute(port: RaneProtocol.Port.usbPortA)
-                // 3. Request complete hardware state dump
+                // 2. Unlock LPC2468 Hardware Security Gate (Opcode 0x18)
+                sendHardwareUnlock()
+                // 3. Instant full blank of all hardware LEDs in 1 ms
+                resetAllHardwareLeds()
+                // 4. Request complete hardware state dump
                 requestHardwareDump()
+                // 5. Initial BPM Sync push to OLED display
+                sendHardwareBpmSync(bpm: RaneFlexFxService.shared.bpm, beatPulse: true)
+            } else {
+                isRomUnlocked = false
             }
             DispatchQueue.main.async {
                 self.onConnectionStateChanged?(current)
@@ -342,8 +400,36 @@ class RaneMidiService {
     }
 
     func sendSysEx(_ bytes: [UInt8]) {
-        guard destEndpoint != 0, isEndpointOnline(destEndpoint), !bytes.isEmpty else { return }
+        guard !bytes.isEmpty else { return }
 
+        // Direct hardware HID transmission with Cypress FX2 4-byte sequence header (0x41 + seq[4] + len + sysex)
+        if let mgr = hidManager,
+           let devSet = IOHIDManagerCopyDevices(mgr) as? Set<IOHIDDevice>,
+           let hidDev = devSet.first {
+            hidLock.lock()
+            let seq = hidSeqNum
+            hidSeqNum &+= 1
+            hidLock.unlock()
+
+            var pkt = [UInt8](repeating: 0, count: 64)
+            pkt[0] = 0x41
+            pkt[1] = UInt8((seq >> 24) & 0xFF)
+            pkt[2] = UInt8((seq >> 16) & 0xFF)
+            pkt[3] = UInt8((seq >> 8) & 0xFF)
+            pkt[4] = UInt8(seq & 0xFF)
+            let count = min(bytes.count, 58)
+            pkt[5] = UInt8(count)
+            for i in 0..<count {
+                pkt[6 + i] = bytes[i]
+            }
+            let kr = IOHIDDeviceSetReport(hidDev, kIOHIDReportTypeOutput, 0, pkt, 64)
+            if kr == kIOReturnSuccess {
+                return
+            }
+        }
+
+        // Fallback via CoreMIDI virtual endpoint
+        guard destEndpoint != 0, isEndpointOnline(destEndpoint) else { return }
         var packet = MIDIPacket()
         packet.timeStamp = 0
         let len = min(bytes.count, 256)
