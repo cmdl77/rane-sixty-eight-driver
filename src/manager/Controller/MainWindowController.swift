@@ -80,6 +80,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
     // Header Badges & Controls
     var headerCpuBadge: CpuBadgeView!
+    var headerLinkButton: NSButton!
     var headerPresetButton: NSButton?
 
     // LED Light Check
@@ -353,6 +354,21 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         }
         headerCpuBadge.update(percent: RaneCpuService.shared.systemCpuUsage)
         headerStack.addArrangedSubview(headerCpuBadge)
+
+        // Global Ableton Link Toggle Button (between CPU load and Mini-HUD)
+        let linkBtn = NSButton(title: " 🔗 Ableton Link: ON ", target: self, action: #selector(onLinkToggleClicked))
+        linkBtn.bezelStyle = .inline
+        linkBtn.font = NSFont.systemFont(ofSize: 11, weight: .bold)
+        linkBtn.wantsLayer = true
+        linkBtn.layer?.cornerRadius = 6
+        linkBtn.layer?.borderWidth = 1.0
+        linkBtn.layer?.backgroundColor = NSColor.systemGreen.withAlphaComponent(0.22).cgColor
+        linkBtn.layer?.borderColor = NSColor.systemGreen.withAlphaComponent(0.75).cgColor
+        linkBtn.contentTintColor = NSColor.systemGreen
+        linkBtn.translatesAutoresizingMaskIntoConstraints = false
+        linkBtn.heightAnchor.constraint(equalToConstant: 24).isActive = true
+        headerStack.addArrangedSubview(linkBtn)
+        self.headerLinkButton = linkBtn
 
         // Mini HUD Mode Toggle Button
         let hudBtn = NSButton(title: "🎛 Mini-HUD ▾", target: self, action: #selector(toggleMiniHudMode))

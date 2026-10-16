@@ -159,20 +159,11 @@ class RaneFlexFxService {
     var isModuleEnabled: Bool = true {
         didSet {
             if isModuleEnabled {
-                rane_link_enable(isLinkEnabled)
-                if isLinkEnabled {
-                    linkPeers = Int(rane_link_get_num_peers())
-                    let liveTempo = rane_link_get_tempo()
-                    if liveTempo >= 40.0 && liveTempo <= 250.0 {
-                        bpm = round(liveTempo * 10.0) / 10.0
-                    }
-                }
                 updateHardwareLeds()
                 startAudioEngine()
                 rescheduleHardwareBeatSyncTimer()
-                RaneMidiService.shared.sendHardwareBpmSync(bpm: bpm, beatPulse: true)
+                RaneMidiService.shared.sendHardwareBpmSync(bpm: bpm, beatPulse: isLinkEnabled)
             } else {
-                rane_link_enable(false)
                 clearAllHardwareLeds()
                 rescheduleHardwareBeatSyncTimer()
                 RaneMidiService.shared.sendMute()
@@ -194,8 +185,8 @@ class RaneFlexFxService {
     var bpm: Double = 124.0 {
         didSet {
             notifyStateChanged()
-            if isModuleEnabled {
-                RaneMidiService.shared.sendHardwareBpmSync(bpm: bpm, beatPulse: true)
+            if isLinkEnabled || isModuleEnabled {
+                RaneMidiService.shared.sendHardwareBpmSync(bpm: bpm, beatPulse: isLinkEnabled)
                 if abs(bpm - lastSyncedTimerBpm) >= 0.05 {
                     rescheduleHardwareBeatSyncTimer()
                 }
@@ -210,20 +201,19 @@ class RaneFlexFxService {
     }
     var isLinkEnabled: Bool = true {
         didSet {
-            if isModuleEnabled {
-                rane_link_enable(isLinkEnabled)
-                if isLinkEnabled {
-                    linkPeers = Int(rane_link_get_num_peers())
-                    let liveTempo = rane_link_get_tempo()
-                    if liveTempo >= 40.0 && liveTempo <= 250.0 {
-                        bpm = round(liveTempo * 10.0) / 10.0
-                    }
-                } else {
-                    linkPeers = 0
+            rane_link_enable(isLinkEnabled)
+            if isLinkEnabled {
+                linkPeers = Int(rane_link_get_num_peers())
+                let liveTempo = rane_link_get_tempo()
+                if liveTempo >= 40.0 && liveTempo <= 250.0 {
+                    bpm = round(liveTempo * 10.0) / 10.0
                 }
+                rescheduleHardwareBeatSyncTimer()
+                RaneMidiService.shared.sendHardwareBpmSync(bpm: bpm, beatPulse: true)
             } else {
-                rane_link_enable(false)
                 linkPeers = 0
+                rescheduleHardwareBeatSyncTimer()
+                RaneMidiService.shared.sendHardwareBpmSync(bpm: bpm, beatPulse: false)
             }
             notifyStateChanged()
             updateHardwareLeds()
@@ -314,7 +304,7 @@ class RaneFlexFxService {
         hwBeatSyncTimer?.cancel()
         hwBeatSyncTimer = nil
 
-        guard isModuleEnabled else { return }
+        guard isLinkEnabled || isModuleEnabled else { return }
         let activeBpm = max(41.0, min(300.0, bpm))
         lastSyncedTimerBpm = activeBpm
         let beatIntervalMs = max(200, Int(round((60.0 / activeBpm) * 1000.0)))
@@ -322,10 +312,14 @@ class RaneFlexFxService {
         let bTimer = DispatchSource.makeTimerSource(queue: DispatchQueue.main)
         bTimer.schedule(deadline: .now() + .milliseconds(beatIntervalMs), repeating: .milliseconds(beatIntervalMs))
         bTimer.setEventHandler { [weak self] in
-            guard let self = self, self.isModuleEnabled else { return }
-            self.currentBeatIndex = (self.currentBeatIndex + 1) % 4
-            self.onBeatPulse?(self.currentBeatIndex)
-            RaneMidiService.shared.sendHardwareBpmSync(bpm: self.bpm, beatPulse: true)
+            guard let self = self else { return }
+            if self.isModuleEnabled {
+                self.currentBeatIndex = (self.currentBeatIndex + 1) % 4
+                self.onBeatPulse?(self.currentBeatIndex)
+            }
+            if self.isLinkEnabled {
+                RaneMidiService.shared.sendHardwareBpmSync(bpm: self.bpm, beatPulse: true)
+            }
         }
         bTimer.resume()
         hwBeatSyncTimer = bTimer
@@ -679,7 +673,7 @@ class RaneFlexFxService {
         rane_link_set_callbacks({ peers in
             DispatchQueue.main.async {
                 let s = RaneFlexFxService.shared
-                guard s.isModuleEnabled && s.isLinkEnabled else { return }
+                guard s.isLinkEnabled else { return }
                 s.linkPeers = Int(peers)
                 let liveTempo = rane_link_get_tempo()
                 if liveTempo >= 40.0 && liveTempo <= 250.0 {
@@ -692,14 +686,14 @@ class RaneFlexFxService {
             }
         })
 
-        if isModuleEnabled && isLinkEnabled {
+        if isLinkEnabled {
             rane_link_enable(true)
         }
 
         let pTimer = DispatchSource.makeTimerSource(queue: DispatchQueue.main)
         pTimer.schedule(deadline: .now() + 0.25, repeating: .milliseconds(250))
         pTimer.setEventHandler { [weak self] in
-            guard let self = self, self.isModuleEnabled, self.isLinkEnabled else { return }
+            guard let self = self, self.isLinkEnabled else { return }
             let peers = Int(rane_link_get_num_peers())
             if peers != self.linkPeers {
                 self.linkPeers = peers
@@ -714,7 +708,7 @@ class RaneFlexFxService {
     }
 
     func updateBpmFromLink(_ newBpm: Double) {
-        guard isModuleEnabled && isLinkEnabled else { return }
+        guard isLinkEnabled else { return }
         let rounded = round(newBpm * 10.0) / 10.0
         if abs(rounded - bpm) >= 0.1 {
             bpm = rounded
@@ -740,7 +734,7 @@ class RaneFlexFxService {
         let learn = RaneMidiLearnService.shared
         let midi = RaneMidiService.shared
 
-        // If module is disabled, all effect LEDs are turned off, but modulePower should reflect isModuleEnabled (false/offValue)
+        // If module is disabled, all effect LEDs are turned off, but modulePower and abletonLink should reflect their states
         if !isModuleEnabled {
             clearAllHardwareLeds()
             // Ensure modulePower LED reflects its off state (offValue)
@@ -754,6 +748,20 @@ class RaneFlexFxService {
                     }
                 } else {
                     midi.sendCC(cc: pwrMap.number, value: pwrMap.offValue, channel: ch)
+                }
+            }
+            // Ensure abletonLink LED reflects global Link state even when FlexFX module is off
+            if let linkMap = learn.outMappingFor(target: .abletonLink) {
+                let ch = (linkMap.channel == 255) ? 0 : linkMap.channel
+                let vel = isLinkEnabled ? linkMap.onValue : linkMap.offValue
+                if linkMap.type == .note {
+                    if vel > 0 {
+                        midi.sendNoteOn(note: linkMap.number, velocity: vel, channel: ch)
+                    } else {
+                        midi.sendNoteOff(note: linkMap.number, channel: ch)
+                    }
+                } else {
+                    midi.sendCC(cc: linkMap.number, value: vel, channel: ch)
                 }
             }
             return
@@ -866,7 +874,7 @@ class RaneFlexFxService {
     func setBpm(_ newBpm: Double) {
         let clamped = max(40.0, min(240.0, newBpm))
         bpm = clamped
-        if isModuleEnabled && isLinkEnabled {
+        if isLinkEnabled {
             rane_link_set_tempo(clamped)
         }
     }

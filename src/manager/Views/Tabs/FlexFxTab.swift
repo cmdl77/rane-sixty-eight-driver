@@ -569,21 +569,6 @@ extension MainWindowController {
         row1.addArrangedSubview(onBtn)
         Self.flexFxRefs.flexFxOnButton = onBtn
 
-        // Ableton Link Button
-        let linkBtn = NSButton(title: "  LINK (Ableton / DJ Sync)", target: self, action: #selector(onLinkToggleClicked))
-        linkBtn.bezelStyle = .inline
-        linkBtn.font = NSFont.systemFont(ofSize: 11, weight: .bold)
-        linkBtn.wantsLayer = true
-        linkBtn.layer?.cornerRadius = 6
-        linkBtn.translatesAutoresizingMaskIntoConstraints = false
-        linkBtn.heightAnchor.constraint(equalToConstant: 28).isActive = true
-        if let img = NSImage(systemSymbolName: "link.circle.fill", accessibilityDescription: nil) {
-            linkBtn.image = img
-            linkBtn.imagePosition = .imageLeading
-        }
-        row1.addArrangedSubview(linkBtn)
-        Self.flexFxRefs.linkButton = linkBtn
-
         // Pre/Post Fader Mode Switch (Tail Preservation for Reverb/Echo)
         let ppBtn = NSButton(title: "POST-FADER (Tail)", target: self, action: #selector(onPrePostToggled))
         ppBtn.bezelStyle = .inline
@@ -718,7 +703,6 @@ extension MainWindowController {
         Self.flexFxRefs.nextBeatButton?.isEnabled = controlsActive
         Self.flexFxRefs.beatSegments?.isEnabled = controlsActive
         Self.flexFxRefs.flexFxOnButton?.isEnabled = controlsActive
-        Self.flexFxRefs.linkButton?.isEnabled = controlsActive
         Self.flexFxRefs.prePostButton?.isEnabled = controlsActive
         Self.flexFxRefs.dryWetSlider?.isEnabled = controlsActive
         Self.flexFxRefs.depthSlider?.isEnabled = controlsActive
@@ -733,10 +717,17 @@ extension MainWindowController {
             Self.flexFxRefs.oledEffectName?.textColor = NSColor(white: 0.38, alpha: 1.0)
             Self.flexFxRefs.oledBeatLabel?.stringValue = "EFFEKT-PROZESSOR BYPASS"
             Self.flexFxRefs.oledBeatLabel?.textColor = NSColor(white: 0.40, alpha: 1.0)
-            Self.flexFxRefs.oledBpmLabel?.stringValue = "---.- BPM"
-            Self.flexFxRefs.oledBpmLabel?.textColor = NSColor(white: 0.35, alpha: 1.0)
-            Self.flexFxRefs.oledLinkBadge?.stringValue = "○ INAKTIV"
-            Self.flexFxRefs.oledLinkBadge?.textColor = NSColor(white: 0.35, alpha: 1.0)
+            if s.isLinkEnabled {
+                Self.flexFxRefs.oledBpmLabel?.stringValue = "\(String(format: "%.1f", s.bpm)) BPM"
+                Self.flexFxRefs.oledBpmLabel?.textColor = NSColor(red: 0.20, green: 0.95, blue: 0.85, alpha: 1.0)
+                Self.flexFxRefs.oledLinkBadge?.stringValue = "● LINK: \(s.linkPeers) PEER\(s.linkPeers == 1 ? "" : "S")"
+                Self.flexFxRefs.oledLinkBadge?.textColor = s.linkPeers > 0 ? NSColor.systemGreen : NSColor.systemOrange
+            } else {
+                Self.flexFxRefs.oledBpmLabel?.stringValue = "---.- BPM"
+                Self.flexFxRefs.oledBpmLabel?.textColor = NSColor(white: 0.35, alpha: 1.0)
+                Self.flexFxRefs.oledLinkBadge?.stringValue = "○ INAKTIV"
+                Self.flexFxRefs.oledLinkBadge?.textColor = NSColor(white: 0.35, alpha: 1.0)
+            }
 
             for dot in Self.flexFxRefs.beatDots {
                 dot.layer?.backgroundColor = NSColor(white: 0.15, alpha: 0.4).cgColor
@@ -835,16 +826,20 @@ extension MainWindowController {
             }
         }
 
-        // 6. Link Button
-        if let lBtn = Self.flexFxRefs.linkButton {
-            if s.isLinkEnabled && s.isModuleEnabled {
-                lBtn.layer?.backgroundColor = NSColor.systemGreen.withAlphaComponent(0.20).cgColor
-                lBtn.layer?.borderColor = NSColor.systemGreen.cgColor
+        // 6. Global Header Ableton Link Button
+        if let lBtn = self.headerLinkButton ?? Self.flexFxRefs.linkButton {
+            lBtn.isEnabled = true
+            if s.isLinkEnabled {
+                let peerStr = s.linkPeers > 0 ? " (\(s.linkPeers))" : ""
+                lBtn.title = " 🔗 Ableton Link: ON\(peerStr) "
+                lBtn.layer?.backgroundColor = NSColor.systemGreen.withAlphaComponent(0.22).cgColor
+                lBtn.layer?.borderColor = NSColor.systemGreen.withAlphaComponent(0.75).cgColor
                 lBtn.contentTintColor = NSColor.systemGreen
             } else {
-                lBtn.layer?.backgroundColor = NSColor(white: 0.20, alpha: 0.5).cgColor
-                lBtn.layer?.borderColor = NSColor(white: 0.35, alpha: 0.4).cgColor
-                lBtn.contentTintColor = NSColor(white: 0.65, alpha: 1.0)
+                lBtn.title = " 🔗 Ableton Link: OFF "
+                lBtn.layer?.backgroundColor = NSColor(white: 0.20, alpha: 0.55).cgColor
+                lBtn.layer?.borderColor = NSColor(white: 0.38, alpha: 0.5).cgColor
+                lBtn.contentTintColor = NSColor(white: 0.68, alpha: 1.0)
             }
         }
 
@@ -914,6 +909,8 @@ extension MainWindowController {
                     self?.appendMidiLog("MIDI TRIGGER: [Modul Power] live geschaltet -> [\(flex.isModuleEnabled ? "AKTIV (ON)" : "ABGESCHALTET / BYPASS (OFF)")] (Raw-Wert: \(val))")
                 } else if target == .fxToggle {
                     self?.appendMidiLog("MIDI TRIGGER: [FlexFX On/Off] live geschaltet -> [\(flex.isEnabled ? "EFFEKT AKTIV" : "EFFEKT BYPASS")] (Raw-Wert: \(val))")
+                } else if target == .abletonLink {
+                    self?.appendMidiLog("MIDI TRIGGER: [Ableton Link Global] live geschaltet -> [\(flex.isLinkEnabled ? "LINK AKTIV (ON)" : "LINK AUS / STANDALONE (OFF)")] (Raw-Wert: \(val))")
                 } else if target == .inputGain {
                     self?.appendMidiLog("MIDI TRIGGER: [Eingang Gain] live geregelt -> [\(String(format: "%.0f%%", flex.inputGain * 100.0))] (Raw-Wert: \(val))")
                 }
@@ -997,9 +994,9 @@ extension MainWindowController {
     }
 
     @objc func onLinkToggleClicked() {
-        guard RaneFlexFxService.shared.isModuleEnabled else { return }
         RaneFlexFxService.shared.isLinkEnabled.toggle()
-        appendMidiLog("Ableton Link: Status -> [\(RaneFlexFxService.shared.isLinkEnabled ? "AKTIV" : "STANDALONE")]")
+        appendMidiLog("Ableton Link (Global): Status -> [\(RaneFlexFxService.shared.isLinkEnabled ? "AKTIV" : "AUS / STANDALONE")]")
+        updateFlexFxUi()
     }
 
     @objc func onDryWetChanged(_ sender: NSSlider) {
