@@ -218,3 +218,55 @@ Wenn Section 2 (`0x08000`) startet, entpackt der Keil-Startcode (`__scatterload`
 - **`F0 17 7D <val> F7`:** Schaltet den **Custom-OLED-Modus EIN** (`[0x4000013B] = 1`).
 - **`F0 17 72 ... F7` / `0x79` / `0x7A` / `0x7B` / `0x7E` / `0x7F`:** Interne Diagnose-, EEPROM-Kalibrierungs- und Serato-Challenge/Response-Befehle.
 
+---
+
+## 8. Wie der 7-Byte „Magic Key“ (`Opcode 0x18`) & die Hardware-BPM-Steuerung (`Opcode 0x53`) geknackt wurden
+
+### 8.1 Warum Standard-MIDI-Clocks am Rane Sixty-Eight wirkungslos sind
+Über reguläre MIDI-Clock-Signale (`0xF8`) oder MIDI-Control-Changes reagiert die interne Hardware-FlexFX-Engine des Rane Sixty-Eight nicht: Das Display bleibt auf dem manuellen Tempo (`BPM: 120.0`) und das **Serato-Sync-Sternchen (`*`)** (`BPM:120.0 * 4/1`) leuchtet niemals auf. Serato Scratch Live verwendet stattdessen ein proprietäres, mehrstufig gesichertes Protokoll.
+
+### 8.2 Rückwärtssuche im ARM7-Maschinencode: Von `update_lcd()` zur Adresse `0x40000140`
+Durch Disassemblierung von `Section 2` (`0x08000`) mit **Capstone** konnte der Datenfluss der Display- und DSP-Engine lückenlos zurückverfolgt werden:
+1. Die Display-Routine **`update_lcd()` (`0x08A2C`)** liest den aktuellen BPM-Wert als 32-Bit IEEE-754 `float` aus der SRAM-Adresse **`0x40000140`** und berechnet daraus auch die Millisekunden-Anzeige (`TIME:`) für den internen FlexFX-DSP.
+2. Im gesamten Firmware-Code gibt es (neben dem physischen Tap-Tempo-Taster) nur **eine einzige Stelle**, die `0x40000140` von außen beschreibt: den Handler für **`SysEx Opcode 0x53`** (`F0 17 53 ... F7`) innerhalb des USB-MIDI-SysEx-Parsers (`0x0B96C`).
+
+### 8.3 Die zwei Türsteher-Sperren vor `Opcode 0x53`
+Die Analyse des ARM-Codes vor `Opcode 0x53` zeigte, warum der Mixer normale `0x53`-Nachrichten ignoriert – er prüft vorab zwei Bedingungen im SRAM:
+1. **Aktiver USB-Control-Port (`0x400010F6`):** Der Befehl wird nur akzeptiert, wenn der sendende USB-Port zuvor per **`Opcode 0x52`** (`F0 17 52 00 F7` für USB Port A) als aktiver Control-Point registriert wurde.
+2. **Das Hardware-Sicherheitsschloss (`0x400018BC`):** Die Firmware prüft ein Sicherheits-Flag im SRAM (`0x400018BC`). Solange dieses Flag `0` ist, verwirft der Mixer die erweiterten Serato-Steuerbefehle.
+
+### 8.4 Der Fund des 7-Byte ROM „Magic Key“ (`Opcode 0x18`) bei Flash-Adresse `0x000185B3`
+Auf der Suche nach allen Schreibzugriffen auf das Sicherheitsschloss stießen wir im SysEx-Parser auf **`Opcode 0x18`** (`F0 17 18 <7 Bytes> F7`):
+- Der Handler vergleicht 7 empfangene SysEx-Bytes in einer Schleife Byte für Byte mit einer geheimen 7-Byte-Konstante im Flash-ROM an der Adresse **`0x000185B3`** (referenziert über den Literal-Pool-Eintrag an `0x0C804` $\rightarrow$ `0x000185B0 + 3`).
+- Das Auslesen dieser 7 Bytes an Flash-Adresse `0x000185B3` lieferte den **Magic Key**:
+  ```swift
+  // Verified 7-byte LPC2468 ROM Security Key (at Flash offset 0x000185B3)
+  static let romUnlockKey: [UInt8] = [0x02, 0x43, 0x88, 0x38, 0x03, 0x6A, 0x01]
+  ```
+- Mit dem 11-Byte-SysEx-Paket **`F0 17 18 02 43 88 38 03 6A 01 F7`** wird das Sicherheitsschloss im LPC2468 geöffnet!
+
+### 8.5 Die 14-Byte Nibble-Codierung von `Opcode 0x53` (verifiziert in der Unicorn-CPU-Sandbox)
+Mithilfe eines Memory-Write-Hooks auf `0x40000140` im **Unicorn ARM7-Emulator** (`scripts/firmware_sandbox.py`) zeigte sich schließlich, wie Rane den BPM-Wert in `Opcode 0x53` verpackt:
+- Da MIDI-Datenbytes zwischen `F0` und `F7` nur 7 Bit (`0x00..0x7F`) nutzen dürfen, zerlegt Rane jedes Datenbyte in **zwei 4-Bit-Nibbles** (`(byte >> 4) & 0x0F` und `byte & 0x0F`).
+- Das Paket **`F0 17 53 ... F7`** ist exakt **14 Bytes** lang und besteht aus 5 Nibble-Paaren:
+
+| Byte-Index | Wert / Formel | Bedeutung in der LPC2468 Firmware |
+| :---: | :---: | :--- |
+| `0..2` | `F0 17 53` | Rane SysEx-Header + Opcode `0x53` (Serato Hardware BPM Sync) |
+| `3..4` | `00 02` | Sync-Modus = `2` (externer Serato-BPM-Sync aktiv) |
+| `5..6` | `00 01` | Beat-Sync-Gate = `1` |
+| `7..8` | `(hi >> 4) & 0x0F`, `hi & 0x0F` | High-Byte-Nibbles von $\text{uint16}(\text{round}(\text{BPM} \times 100))$ |
+| `9..10` | `(lo >> 4) & 0x0F`, `lo & 0x0F` | Low-Byte-Nibbles von $\text{uint16}(\text{round}(\text{BPM} \times 100))$ |
+| `11..12` | `00 01` (oder `00 00`) | Schaltet das **Serato-Sternchen `*`** auf dem OLED-Display ein (`01`) oder aus (`00`) |
+| `13` | `F7` | SysEx-Ende |
+
+**Beispiel für `120.00 BPM`:**
+$$\text{bpmInt} = 120.00 \times 100 = 12000 = \text{0x2EE0} \implies \text{hi} = \text{0x2E}, \text{lo} = \text{0xE0}$$
+$$\text{SysEx (14 Bytes): } \texttt{F0 17 53 00 02 00 01 02 0E 0E 00 00 01 F7}$$
+
+Der LPC2468 setzt aus den Nibbles `0x2EE0` (`12000`) zusammen, teilt durch `100.0f`, schreibt `120.0f` nach **`0x40000140`**, berechnet sofort die neue Effekt-Verzögerungszeit (`TIME: 500ms` bei `4/1`) für den internen FlexFX-DSP und aktualisiert das OLED-Display inklusive `*`-Indikator!
+
+### 8.6 Der direkte USB-HID-Tunnel (`Report ID 0x41`)
+Aus der 8051-Firmware des Cypress FX2 USB-Chips (`Section 6`) ergab sich zudem das exakte Transportformat: Der USB-Chip akzeptiert **42-Byte HID-Output-Reports mit Report-ID `0x41`** (`[0x41, 0x00, 0x00, 0x00, 0x00, sysExLen, sysExBytes...]`) und leitet die enthaltenen SysEx-Bytes direkt per SPI in den Ringpuffer `0x40001540` des ARM7-Prozessors weiter.
+
+
