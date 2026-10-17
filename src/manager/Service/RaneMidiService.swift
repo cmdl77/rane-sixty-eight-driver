@@ -6,6 +6,12 @@ import CoreMIDI
 import IOKit
 import IOKit.hid
 
+public struct MidiInputDeviceInfo: Equatable {
+    public let endpointRef: MIDIEndpointRef
+    public let id: String
+    public let displayName: String
+}
+
 class RaneMidiService {
     static let shared = RaneMidiService()
 
@@ -15,6 +21,11 @@ class RaneMidiService {
     private var destEndpoint: MIDIEndpointRef = 0
     private var srcEndpoint: MIDIEndpointRef = 0
     private var connectedSources = Set<MIDIEndpointRef>()
+    private var allOnlineDestinations: [MIDIEndpointRef] = []
+
+    public private(set) var availableInputDevices: [MidiInputDeviceInfo] = []
+    private var endpointToDeviceId: [MIDIEndpointRef: String] = [:]
+    private let endpointMapLock = NSLock()
 
     // USB Hardware Detection via IOHIDManager
     private var hidManager: IOHIDManager?
@@ -37,6 +48,7 @@ class RaneMidiService {
 
     var onMidiReceived: ((UInt8, UInt8, UInt8) -> Void)?
     var onConnectionStateChanged: ((Bool) -> Void)?
+    var onMidiDevicesChanged: (() -> Void)?
 
     init() {
         setupMidi()
@@ -59,10 +71,10 @@ class RaneMidiService {
         status = MIDIOutputPortCreate(midiClient, "ControlPanelOut" as CFString, &outPort)
         if status != noErr { return }
 
-        let readProc: MIDIReadProc = { pktList, readRefCon, _ in
+        let readProc: MIDIReadProc = { pktList, readRefCon, srcConnRefCon in
             guard let refCon = readRefCon else { return }
             let service = Unmanaged<RaneMidiService>.fromOpaque(refCon).takeUnretainedValue()
-            service.processIncomingPacketList(pktList)
+            service.processIncomingPacketList(pktList, srcConnRefCon: srcConnRefCon)
         }
 
         status = MIDIInputPortCreate(midiClient, "ControlPanelIn" as CFString, readProc, Unmanaged.passUnretained(self).toOpaque(), &inPort)
@@ -213,6 +225,23 @@ class RaneMidiService {
         }
     }
 
+    /// Sets the hardware channel strip filter mode for PGM 1..4 via Firmware SysEx 0x06 (`F0 17 06 <arg> F7`)
+    /// - Parameters:
+    ///   - channel: 1..4 (PGM 1..4)
+    ///   - mode: 0 = Normal (LP+HP), 1 = Low-Pass Only (270°), 2 = High-Pass Only (270°), 3 = Filter OFF (MIDI Only)
+    func sendChannelFilterMode(channel: Int, mode: Int) {
+        let chIdx = UInt8(max(0, min(3, channel - 1)))
+        let modeIdx = UInt8(max(0, min(3, mode)))
+        let arg = (chIdx << 4) | modeIdx
+        sendSysEx([
+            RaneProtocol.sysExStart,
+            RaneProtocol.manufacturerId,
+            RaneProtocol.Opcode.channelFilterMode,
+            arg,
+            RaneProtocol.sysExEnd
+        ])
+    }
+
     /// Writes 14 ASCII characters to Line 1 (0x400000E7) of the hardware OLED display (SysEx 0x01)
     func sendOledLine1(_ text: String) {
         guard isUsbAttached else { return }
@@ -336,39 +365,74 @@ class RaneMidiService {
         return true
     }
 
+    private func endpointDisplayName(_ endpoint: MIDIEndpointRef) -> String {
+        var displayName: Unmanaged<CFString>?
+        if MIDIObjectGetStringProperty(endpoint, kMIDIPropertyDisplayName, &displayName) == noErr,
+           let str = displayName?.takeRetainedValue() as String?, !str.isEmpty {
+            return str
+        }
+        var name: Unmanaged<CFString>?
+        if MIDIObjectGetStringProperty(endpoint, kMIDIPropertyName, &name) == noErr,
+           let str = name?.takeRetainedValue() as String?, !str.isEmpty {
+            return str
+        }
+        return "MIDI Device (\(endpoint))"
+    }
+
     func connectEndpoints() {
         var foundDest: MIDIEndpointRef = 0
+        var onlineDests: [MIDIEndpointRef] = []
 
         let numDests = MIDIGetNumberOfDestinations()
         for i in 0..<numDests {
             let d = MIDIGetDestination(i)
-            var name: Unmanaged<CFString>?
-            MIDIObjectGetStringProperty(d, kMIDIPropertyName, &name)
-            if let str = name?.takeRetainedValue() as String? {
+            if isEndpointOnline(d) {
+                onlineDests.append(d)
+                let str = endpointDisplayName(d)
                 if str.contains("Sixty-Eight") || str.contains("Rane") {
-                    if isEndpointOnline(d) {
+                    if foundDest == 0 {
                         foundDest = d
-                        break
                     }
                 }
             }
         }
 
         destEndpoint = foundDest
+        allOnlineDestinations = onlineDests
 
         let numSrcs = MIDIGetNumberOfSources()
+        var discoveredDevices: [MidiInputDeviceInfo] = []
+        var newMap: [MIDIEndpointRef: String] = [:]
 
         // Connect ALL online MIDI sources (Rane Sixty-Eight, external controllers, keyboards, Xone, etc.)
-        // so that MIDI Learn can learn from any controller seamlessly!
         for i in 0..<numSrcs {
             let s = MIDIGetSource(i)
             if isEndpointOnline(s) {
+                let dispName = endpointDisplayName(s)
+                let devId = dispName
+                newMap[s] = devId
+                if !discoveredDevices.contains(where: { $0.id == devId }) {
+                    discoveredDevices.append(MidiInputDeviceInfo(endpointRef: s, id: devId, displayName: dispName))
+                }
                 if !connectedSources.contains(s) {
-                    let status = MIDIPortConnectSource(inPort, s, nil)
+                    let refPtr = UnsafeMutableRawPointer(bitPattern: UInt(s))
+                    let status = MIDIPortConnectSource(inPort, s, refPtr)
                     if status == noErr {
                         connectedSources.insert(s)
                     }
                 }
+            }
+        }
+
+        endpointMapLock.lock()
+        endpointToDeviceId = newMap
+        endpointMapLock.unlock()
+
+        let devicesChanged = (discoveredDevices != availableInputDevices)
+        availableInputDevices = discoveredDevices
+        if devicesChanged {
+            DispatchQueue.main.async {
+                self.onMidiDevicesChanged?()
             }
         }
 
@@ -452,9 +516,8 @@ class RaneMidiService {
     }
 
     func sendCC(cc: UInt8, value: UInt8, channel: UInt8 = 0) {
-        guard isConnected else { return }
-        if destEndpoint == 0 { connectEndpoints() }
-        guard destEndpoint != 0 else { return }
+        if allOnlineDestinations.isEmpty { connectEndpoints() }
+        guard !allOnlineDestinations.isEmpty else { return }
 
         let st = 0xB0 | (channel & 0x0F)
         let c = cc & 0x7F
@@ -469,13 +532,14 @@ class RaneMidiService {
         packet.data.2 = v
 
         var list = MIDIPacketList(numPackets: 1, packet: packet)
-        MIDISend(outPort, destEndpoint, &list)
+        for dest in allOnlineDestinations {
+            MIDISend(outPort, dest, &list)
+        }
     }
 
     func sendNoteOn(note: UInt8, velocity: UInt8 = 127, channel: UInt8 = 0) {
-        guard isConnected else { return }
-        if destEndpoint == 0 { connectEndpoints() }
-        guard destEndpoint != 0 else { return }
+        if allOnlineDestinations.isEmpty { connectEndpoints() }
+        guard !allOnlineDestinations.isEmpty else { return }
 
         let st = 0x90 | (channel & 0x0F)
         let n = note & 0x7F
@@ -490,13 +554,14 @@ class RaneMidiService {
         packet.data.2 = vel
 
         var list = MIDIPacketList(numPackets: 1, packet: packet)
-        MIDISend(outPort, destEndpoint, &list)
+        for dest in allOnlineDestinations {
+            MIDISend(outPort, dest, &list)
+        }
     }
 
     func sendNoteOff(note: UInt8, channel: UInt8 = 0) {
-        guard isConnected else { return }
-        if destEndpoint == 0 { connectEndpoints() }
-        guard destEndpoint != 0 else { return }
+        if allOnlineDestinations.isEmpty { connectEndpoints() }
+        guard !allOnlineDestinations.isEmpty else { return }
 
         let ch = channel & 0x0F
         let n = note & 0x7F
@@ -511,7 +576,9 @@ class RaneMidiService {
         packet.data.2 = 0
 
         var list = MIDIPacketList(numPackets: 1, packet: packet)
-        MIDISend(outPort, destEndpoint, &list)
+        for dest in allOnlineDestinations {
+            MIDISend(outPort, dest, &list)
+        }
     }
 
     /// Turns off all hardware LEDs across the mixer simultaneously using Opcode 0x09
@@ -576,22 +643,47 @@ class RaneMidiService {
         MIDISend(outPort, destEndpoint, &list)
     }
 
-    private func processIncomingPacketList(_ pktList: UnsafePointer<MIDIPacketList>) {
+    private func processIncomingPacketList(_ pktList: UnsafePointer<MIDIPacketList>, srcConnRefCon: UnsafeMutableRawPointer?) {
         lastActivityTime = Date().timeIntervalSince1970
         if !isResponsive {
             isResponsive = true
             evaluateConnectionState()
         }
+
+        var sourceId: String = "OMNI"
+        if let ref = srcConnRefCon {
+            let ep = MIDIEndpointRef(UInt(bitPattern: ref))
+            endpointMapLock.lock()
+            if let mapped = endpointToDeviceId[ep] {
+                sourceId = mapped
+            }
+            endpointMapLock.unlock()
+        }
+
         var packet = pktList.pointee.packet
         for _ in 0..<pktList.pointee.numPackets {
-            let status = packet.data.0
-            let d1 = packet.data.1
-            let d2 = packet.data.2
+            let len = Int(packet.length)
+            if len > 0 {
+                let status = packet.data.0
+                let d1 = len > 1 ? packet.data.1 : 0
+                let d2 = len > 2 ? packet.data.2 : 0
 
-            // Filter out echoes of messages that our application just transmitted
-            if !isEchoOfSentMidi(status: status, d1: d1, d2: d2) {
-                DispatchQueue.main.async {
-                    self.onMidiReceived?(status, d1, d2)
+                // System Real-Time MIDI Clock / Start / Continue / Stop (0xF8..0xFC)
+                if status >= 0xF8 && status <= 0xFC {
+                    RanePluginHostService.shared.routeIncomingMidi(fromSourceId: sourceId, status: status, d1: 0, d2: 0)
+                } else if status >= 0x80 && status < 0xF0 {
+                    // Filter out echoes of messages that our application just transmitted
+                    if !isEchoOfSentMidi(status: status, d1: d1, d2: d2) {
+                        // 1. Forward MIDI Event immediately to VST/AU Plugin Slots that listen to this controller
+                        RanePluginHostService.shared.routeIncomingMidi(fromSourceId: sourceId, status: status, d1: d1, d2: d2)
+
+                        // 2. Forward to Controller Manager / UI if source matches Controller Manager filter
+                        if RaneMidiLearnService.shared.acceptsControllerMidi(fromSourceId: sourceId) {
+                            DispatchQueue.main.async {
+                                self.onMidiReceived?(status, d1, d2)
+                            }
+                        }
+                    }
                 }
             }
             packet = MIDIPacketNext(&packet).pointee

@@ -15,6 +15,7 @@ struct PgmChannelControls {
     let sourceBadge: NSTextField      // Feld 2: PH/CD / USB / AUX (CC 116..119)
     let phonoPopup: NSPopUpButton
     let resonanceSegment: NSSegmentedControl
+    let filterModePopup: NSPopUpButton // Firmware SysEx 0x06: Normal (LP+HP), Low-Pass 270°, High-Pass 270°, Off (MIDI Only)
     let recordSegment: NSSegmentedControl
     let crossfaderBadge: NSTextField  // Feld 3: Crossfader A / POST / B (CC 120..123)
 }
@@ -39,6 +40,7 @@ enum RaneProtocol {
         static let getSetParams: UInt8 = 0x02
         static let oledLine2: UInt8 = 0x02
         static let getAllControls: UInt8 = 0x04
+        static let channelFilterMode: UInt8 = 0x06
         static let bulkLedMatrix: UInt8 = 0x09
         static let dspFxParams: UInt8 = 0x18
         static let securityUnlock: UInt8 = 0x18

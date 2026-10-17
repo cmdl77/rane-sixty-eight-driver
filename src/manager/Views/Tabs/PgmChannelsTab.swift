@@ -17,12 +17,36 @@ extension MainWindowController {
         insetOuter.alignment = .leading
         insetOuter.spacing = 14
 
+        let topBarRow = NSStackView()
+        topBarRow.orientation = .horizontal
+        topBarRow.alignment = .centerY
+        topBarRow.spacing = 10
+
         let topBar = createSectionTopBar(
             icon: "slider.vertical.3",
             title: Localization.tr(en: "Hardware Phono/Line Input Stages & Routing", de: "Hardware Phono/Line Eingangsstufen & Routing"),
             tintColor: .systemBlue
         )
-        insetOuter.addArrangedSubview(topBar)
+        topBarRow.addArrangedSubview(topBar)
+
+        let topSpacer = NSView()
+        topSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        topBarRow.addArrangedSubview(topSpacer)
+
+        let fwBadge = NSTextField(labelWithString: Localization.tr(
+            en: "  ⚪️ Filter Modes (SysEx 0x06): Requires FW v2.00 Custom  ",
+            de: "  ⚪️ Filter-Modi (SysEx 0x06): Erfordert FW v2.00 Custom  "
+        ))
+        fwBadge.font = NSFont.monospacedSystemFont(ofSize: 10.5, weight: .bold)
+        fwBadge.textColor = NSColor.secondaryLabelColor
+        fwBadge.wantsLayer = true
+        fwBadge.layer?.cornerRadius = 5
+        fwBadge.layer?.backgroundColor = NSColor(white: 0.25, alpha: 0.35).cgColor
+        self.pgmFirmwareFeatureBadge = fwBadge
+        topBarRow.addArrangedSubview(fwBadge)
+
+        insetOuter.addArrangedSubview(topBarRow)
+        topBarRow.widthAnchor.constraint(equalTo: insetOuter.widthAnchor).isActive = true
 
         let rowOfChannels = NSStackView()
         rowOfChannels.orientation = .horizontal
@@ -136,6 +160,25 @@ extension MainWindowController {
             chStack.addArrangedSubview(resSegment)
             resSegment.widthAnchor.constraint(equalTo: chStack.widthAnchor).isActive = true
 
+            // 3b. Hardware Filter Mode (Firmware SysEx 0x06)
+            let fModeTitle = NSTextField(labelWithString: Localization.tr(en: "Filter Mode (Knob):", de: "Filter-Modus (Poti):"))
+            fModeTitle.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+            fModeTitle.textColor = NSColor.secondaryLabelColor
+            let fModePopup = NSPopUpButton(title: "", target: self, action: #selector(onFilterModePopupChanged(_:)))
+            fModePopup.tag = ch
+            fModePopup.controlSize = .small
+            fModePopup.addItems(withTitles: [
+                Localization.tr(en: "Normal (LP + HP)", de: "Normal (LP + HP)"),
+                Localization.tr(en: "Low-Pass Only (270°)", de: "Nur Low-Pass (270°)"),
+                Localization.tr(en: "High-Pass Only (270°)", de: "Nur High-Pass (270°)"),
+                Localization.tr(en: "Filter OFF (MIDI Only)", de: "Filter Aus (Nur MIDI)")
+            ])
+            let savedFilterMode = UserDefaults.standard.integer(forKey: "RaneSixtyEight_FilterMode_PGM\(ch)")
+            fModePopup.selectItem(at: max(0, min(3, savedFilterMode)))
+            chStack.addArrangedSubview(fModeTitle)
+            chStack.addArrangedSubview(fModePopup)
+            fModePopup.widthAnchor.constraint(equalTo: chStack.widthAnchor).isActive = true
+
             let div3 = createDivider()
             chStack.addArrangedSubview(div3)
             div3.widthAnchor.constraint(equalTo: chStack.widthAnchor).isActive = true
@@ -185,6 +228,7 @@ extension MainWindowController {
                 sourceBadge: sourceBadge,
                 phonoPopup: sensPopup,
                 resonanceSegment: resSegment,
+                filterModePopup: fModePopup,
                 recordSegment: recSegment,
                 crossfaderBadge: xfBadge
             ))
@@ -220,6 +264,16 @@ extension MainWindowController {
         let val: UInt8 = isHigh ? 127 : 0
         sendUserCC(cc: ccNum, value: val)
         appendMidiLog("OUT: PGM \(ch) Filter Resonance -> CC#\(ccNum)=\(val) (\(isHigh ? "High" : "Low")) [Warte auf Quittung...]")
+    }
+
+    @objc func onFilterModePopupChanged(_ sender: NSPopUpButton) {
+        let ch = sender.tag
+        let mode = max(0, min(3, sender.indexOfSelectedItem))
+        UserDefaults.standard.set(mode, forKey: "RaneSixtyEight_FilterMode_PGM\(ch)")
+        RaneMidiService.shared.sendChannelFilterMode(channel: ch, mode: mode)
+        let arg = UInt8(((ch - 1) & 0x03) << 4 | (mode & 0x03))
+        let modeTitle = sender.titleOfSelectedItem ?? ""
+        appendMidiLog(String(format: "OUT: PGM %d Filter-Modus -> %@ [SysEx F0 17 06 %02X F7]", ch, modeTitle, arg))
     }
 
     @objc func onRecordSourceChanged(_ sender: NSSegmentedControl) {

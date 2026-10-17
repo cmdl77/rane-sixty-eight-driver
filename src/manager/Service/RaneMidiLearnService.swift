@@ -5,22 +5,31 @@ import Foundation
 import CoreMIDI
 
 public enum FlexFxMidiTarget: String, CaseIterable, Codable {
-    case fxFilter    = "FX_FILTER"
-    case fxFlanger   = "FX_FLANGER"
-    case fxPhaser    = "FX_PHASER"
-    case fxEcho      = "FX_ECHO"
-    case fxDubDelay  = "FX_DUB_DELAY"
-    case fxReverb    = "FX_REVERB"
-    case fxToggle    = "FX_TOGGLE"      // FlexFX On/Off
-    case prevBeat    = "PREV_BEAT"      // Beat division <
-    case nextBeat    = "NEXT_BEAT"      // Beat division >
-    case dryWet      = "DRY_WET"        // Dry/Wet knob or slider
-    case depth       = "DEPTH"          // Depth knob or slider
-    case tempo       = "TEMPO"          // Tempo (BPM) Poti
-    case prePost     = "PRE_POST"       // Pre/Post Fader toggle
+    // ── New 3-Path Parallel Matrix Targets ──
+    case usbRecordKnob   = "USB_RECORD_KNOB"   // Left Input Selector (USB RECORD Ch 1–12 / KNOB)
+    case fx1PreGain      = "FX1_PRE_GAIN"      // Path 1 Pre-Gain Fader
+    case fx2PreGain      = "FX2_PRE_GAIN"      // Path 2 Pre-Gain Fader
+    case dryPreGain      = "DRY_PRE_GAIN"      // Path 3 Dry Pre-Gain Fader
+    case vst1Toggle      = "VST1_TOGGLE"       // VST Effekt 1 ON / OFF
+    case vst2Toggle      = "VST2_TOGGLE"       // VST Effekt 2 ON / OFF
+    case fx1PostGain     = "FX1_POST_GAIN"     // Path 1 Post-Gain Fader
+    case fx2PostGain     = "FX2_POST_GAIN"     // Path 2 Post-Gain Fader
+    case dryPostGain     = "DRY_POST_GAIN"     // Path 3 Dry Post-Gain Fader
+    case usbPlaybackKnob = "USB_PLAYBACK_KNOB" // Right Output Selector (USB PLAYBACK Ch 1–10 / KNOB)
+
+    // Direct Stereo Output Pair Selectors
+    case outputFlexFx    = "OUTPUT_FLEXFX"     // Direct Output Ch 9–10 FlexFX Return
+    case outputPgm1      = "OUTPUT_PGM1"       // Direct Output Ch 1–2 PGM 1
+    case outputPgm2      = "OUTPUT_PGM2"       // Direct Output Ch 3–4 PGM 2
+    case outputPgm3      = "OUTPUT_PGM3"       // Direct Output Ch 5–6 PGM 3
+    case outputPgm4      = "OUTPUT_PGM4"       // Direct Output Ch 7–8 PGM 4
+
+    // Global / Tempo / Legacy Targets
     case modulePower = "MODULE_POWER"   // Module master power
+    case tempo       = "TEMPO"          // Tempo (BPM) Poti
     case abletonLink = "ABLETON_LINK"   // Ableton Link On/Off
-    case inputGain   = "INPUT_GAIN"     // Input Gain Fader / Volume
+    case fxToggle    = "FX_TOGGLE"      // Legacy FlexFX On/Off (syncs with VST 1)
+    case inputGain   = "INPUT_GAIN"     // Legacy Input Gain Fader
     case inputSelect = "INPUT_SELECT"   // Cycle Audio Input Source
     case inputFlexFx = "INPUT_FLEXFX"   // Direct Select FlexFX Send (Ch 9–10)
     case inputPgm1   = "INPUT_PGM1"     // Direct Select Deck 1 / PGM 1 (Ch 1–2)
@@ -28,16 +37,42 @@ public enum FlexFxMidiTarget: String, CaseIterable, Codable {
     case inputPgm3   = "INPUT_PGM3"     // Direct Select Deck 3 / PGM 3 (Ch 5–6)
     case inputPgm4   = "INPUT_PGM4"     // Direct Select Deck 4 / PGM 4 (Ch 7–8)
     case inputMainMix = "INPUT_MAIN_MIX" // Direct Select Main Mix / Mic (Ch 11–12)
+    case fxFilter    = "FX_FILTER"
+    case fxFlanger   = "FX_FLANGER"
+    case fxPhaser    = "FX_PHASER"
+    case fxEcho      = "FX_ECHO"
+    case fxDubDelay  = "FX_DUB_DELAY"
+    case fxReverb    = "FX_REVERB"
+    case prevBeat    = "PREV_BEAT"
+    case nextBeat    = "NEXT_BEAT"
+    case dryWet      = "DRY_WET"
+    case depth       = "DEPTH"
+    case prePost     = "PRE_POST"
 
     public var displayName: String {
         switch self {
+        case .usbRecordKnob:   return "USB RECORD Ch 1–12 (KNOB)"
+        case .fx1PreGain:      return "VST Effekt 1 • Pre-Gain (Fader)"
+        case .fx2PreGain:      return "VST Effekt 2 • Pre-Gain (Fader)"
+        case .dryPreGain:      return "Dry Signal • Pre-Gain (Fader)"
+        case .vst1Toggle:      return "VST Effekt 1 • ON / OFF"
+        case .vst2Toggle:      return "VST Effekt 2 • ON / OFF"
+        case .fx1PostGain:     return "VST Effekt 1 • Post-Gain (Fader)"
+        case .fx2PostGain:     return "VST Effekt 2 • Post-Gain (Fader)"
+        case .dryPostGain:     return "Dry Signal • Post-Gain (Fader)"
+        case .usbPlaybackKnob: return "USB PLAYBACK Ch 1–10 (KNOB)"
+        case .outputFlexFx:    return "Ausgang: FlexFX Return (Ch 9–10)"
+        case .outputPgm1:      return "Ausgang: Deck 1 / PGM 1 (Ch 1–2)"
+        case .outputPgm2:      return "Ausgang: Deck 2 / PGM 2 (Ch 3–4)"
+        case .outputPgm3:      return "Ausgang: Deck 3 / PGM 3 (Ch 5–6)"
+        case .outputPgm4:      return "Ausgang: Deck 4 / PGM 4 (Ch 7–8)"
         case .fxFilter:     return "Filter"
         case .fxFlanger:    return "Flanger"
         case .fxPhaser:     return "Phaser"
         case .fxEcho:       return "Echo"
         case .fxDubDelay:   return "Dub Delay"
         case .fxReverb:     return "Reverb"
-        case .fxToggle:     return "FlexFX On/Off"
+        case .fxToggle:     return "FlexFX On/Off (Global)"
         case .prevBeat:     return "Beat <"
         case .nextBeat:     return "Beat >"
         case .dryWet:       return "Dry / Wet"
@@ -59,7 +94,10 @@ public enum FlexFxMidiTarget: String, CaseIterable, Codable {
 
     public var defaultInteractionType: ControlInteractionType {
         switch self {
-        case .dryWet, .depth, .tempo, .inputGain:
+        case .usbRecordKnob, .usbPlaybackKnob,
+             .fx1PreGain, .fx2PreGain, .dryPreGain,
+             .fx1PostGain, .fx2PostGain, .dryPostGain,
+             .dryWet, .depth, .tempo, .inputGain:
             return .faderKnob
         default:
             return .button
@@ -72,6 +110,21 @@ public enum FlexFxMidiTarget: String, CaseIterable, Codable {
             return
         }
         switch rawValue {
+        case "USB_RECORD_KNOB": self = .usbRecordKnob
+        case "FX1_PRE_GAIN": self = .fx1PreGain
+        case "FX2_PRE_GAIN": self = .fx2PreGain
+        case "DRY_PRE_GAIN": self = .dryPreGain
+        case "VST1_TOGGLE": self = .vst1Toggle
+        case "VST2_TOGGLE": self = .vst2Toggle
+        case "FX1_POST_GAIN": self = .fx1PostGain
+        case "FX2_POST_GAIN": self = .fx2PostGain
+        case "DRY_POST_GAIN": self = .dryPostGain
+        case "USB_PLAYBACK_KNOB": self = .usbPlaybackKnob
+        case "OUTPUT_FLEXFX": self = .outputFlexFx
+        case "OUTPUT_PGM1": self = .outputPgm1
+        case "OUTPUT_PGM2": self = .outputPgm2
+        case "OUTPUT_PGM3": self = .outputPgm3
+        case "OUTPUT_PGM4": self = .outputPgm4
         case "FX_FILTER": self = .fxFilter
         case "FX_FLANGER": self = .fxFlanger
         case "FX_PHASER": self = .fxPhaser
@@ -87,6 +140,7 @@ public enum FlexFxMidiTarget: String, CaseIterable, Codable {
         case "PRE_POST": self = .prePost
         case "MODULE_POWER": self = .modulePower
         case "ABLETON_LINK": self = .abletonLink
+        case "INPUT_GAIN": self = .inputGain
         case "INPUT_SELECT": self = .inputSelect
         case "INPUT_FLEXFX": self = .inputFlexFx
         case "INPUT_PGM1": self = .inputPgm1
@@ -273,6 +327,23 @@ public class RaneMidiLearnService {
     private let userDefaultsKey = "RaneSixtyEight_MidiLearnMappings_v2"
     private let outDefaultsKey = "RaneSixtyEight_MidiOutMappings_v1"
     private let filterDefaultsKey = "RaneSixtyEight_MidiFilterRules_v1"
+    private let controllerSourceKey = "RaneSixtyEight_ControllerMidiSource_v1"
+
+    /// Selected MIDI Input Controller for UI/FlexFX mappings ("OMNI" = all controllers, or specific device id)
+    public var controllerMidiSourceId: String = "OMNI" {
+        didSet {
+            UserDefaults.standard.set(controllerMidiSourceId, forKey: controllerSourceKey)
+            onMappingUpdated?()
+            for obs in mappingObservers.values { obs() }
+        }
+    }
+
+    public func acceptsControllerMidi(fromSourceId sourceId: String) -> Bool {
+        if controllerMidiSourceId == "OMNI" || controllerMidiSourceId.isEmpty {
+            return true
+        }
+        return controllerMidiSourceId == sourceId
+    }
 
     // Active MIDI Learn Mode state
     public var isLearnModeActive: Bool = false {
@@ -381,6 +452,9 @@ public class RaneMidiLearnService {
     }
 
     private init() {
+        if let savedSource = UserDefaults.standard.string(forKey: controllerSourceKey), !savedSource.isEmpty {
+            self.controllerMidiSourceId = savedSource
+        }
         loadMappings()
         loadOutMappings()
         loadFilterRules()
@@ -710,6 +784,108 @@ public class RaneMidiLearnService {
         let isRelativeDecrement = (rawValue == 127 || rawValue == 63)
 
         switch target {
+        case .usbRecordKnob:
+            if interactionType == .button {
+                if isPressed { flex.cycleInputSource(forward: true) }
+            } else if interactionType == .encoder {
+                if isRelativeIncrement {
+                    flex.cycleInputSource(forward: true)
+                } else if isRelativeDecrement {
+                    flex.cycleInputSource(forward: false)
+                }
+            } else {
+                let ordered = FlexFxInputSource.orderedByChannel
+                let idx = min(ordered.count - 1, max(0, Int(round(normValue * Float(ordered.count - 1)))))
+                flex.inputSource = ordered[idx]
+            }
+        case .usbPlaybackKnob:
+            if interactionType == .button {
+                if isPressed { flex.cycleOutputDestination(forward: true) }
+            } else if interactionType == .encoder {
+                if isRelativeIncrement {
+                    flex.cycleOutputDestination(forward: true)
+                } else if isRelativeDecrement {
+                    flex.cycleOutputDestination(forward: false)
+                }
+            } else {
+                let ordered = FlexFxOutputDestination.orderedByChannel
+                let idx = min(ordered.count - 1, max(0, Int(round(normValue * Float(ordered.count - 1)))))
+                flex.outputDestination = ordered[idx]
+            }
+        case .fx1PreGain:
+            if interactionType == .encoder {
+                let step = isRelativeIncrement ? 0.02 : (isRelativeDecrement ? -0.02 : (normValue > 0.5 ? 0.02 : -0.02))
+                flex.fx1PreGain = max(0.0, min(1.5, flex.fx1PreGain + step))
+            } else {
+                flex.fx1PreGain = Double(normValue)
+            }
+        case .fx2PreGain:
+            if interactionType == .encoder {
+                let step = isRelativeIncrement ? 0.02 : (isRelativeDecrement ? -0.02 : (normValue > 0.5 ? 0.02 : -0.02))
+                flex.fx2PreGain = max(0.0, min(1.5, flex.fx2PreGain + step))
+            } else {
+                flex.fx2PreGain = Double(normValue)
+            }
+        case .dryPreGain:
+            if interactionType == .encoder {
+                let step = isRelativeIncrement ? 0.02 : (isRelativeDecrement ? -0.02 : (normValue > 0.5 ? 0.02 : -0.02))
+                flex.dryPreGain = max(0.0, min(1.5, flex.dryPreGain + step))
+            } else {
+                flex.dryPreGain = Double(normValue)
+            }
+        case .vst1Toggle:
+            if interactionType == .button {
+                switch buttonMode {
+                case .toggle, .trigger:
+                    if isPressed { flex.isFx1Enabled.toggle() }
+                case .hold, .direct:
+                    flex.isFx1Enabled = isPressed
+                }
+            } else {
+                flex.isFx1Enabled = (normValue > 0.5 || rawValue > 0)
+            }
+        case .vst2Toggle:
+            if interactionType == .button {
+                switch buttonMode {
+                case .toggle, .trigger:
+                    if isPressed { flex.isFx2Enabled.toggle() }
+                case .hold, .direct:
+                    flex.isFx2Enabled = isPressed
+                }
+            } else {
+                flex.isFx2Enabled = (normValue > 0.5 || rawValue > 0)
+            }
+        case .fx1PostGain:
+            if interactionType == .encoder {
+                let step = isRelativeIncrement ? 0.02 : (isRelativeDecrement ? -0.02 : (normValue > 0.5 ? 0.02 : -0.02))
+                flex.fx1PostGain = max(0.0, min(1.5, flex.fx1PostGain + step))
+            } else {
+                flex.fx1PostGain = Double(normValue)
+            }
+        case .fx2PostGain:
+            if interactionType == .encoder {
+                let step = isRelativeIncrement ? 0.02 : (isRelativeDecrement ? -0.02 : (normValue > 0.5 ? 0.02 : -0.02))
+                flex.fx2PostGain = max(0.0, min(1.5, flex.fx2PostGain + step))
+            } else {
+                flex.fx2PostGain = Double(normValue)
+            }
+        case .dryPostGain:
+            if interactionType == .encoder {
+                let step = isRelativeIncrement ? 0.02 : (isRelativeDecrement ? -0.02 : (normValue > 0.5 ? 0.02 : -0.02))
+                flex.dryPostGain = max(0.0, min(1.5, flex.dryPostGain + step))
+            } else {
+                flex.dryPostGain = Double(normValue)
+            }
+        case .outputFlexFx:
+            if isPressed || interactionType == .faderKnob { flex.outputDestination = .flexFxReturn }
+        case .outputPgm1:
+            if isPressed || interactionType == .faderKnob { flex.outputDestination = .pgm1 }
+        case .outputPgm2:
+            if isPressed || interactionType == .faderKnob { flex.outputDestination = .pgm2 }
+        case .outputPgm3:
+            if isPressed || interactionType == .faderKnob { flex.outputDestination = .pgm3 }
+        case .outputPgm4:
+            if isPressed || interactionType == .faderKnob { flex.outputDestination = .pgm4 }
         case .fxFilter:
             if interactionType == .button {
                 if isPressed { flex.currentEffect = .filter }
@@ -809,7 +985,6 @@ public class RaneMidiLearnService {
                 case .direct:
                     flex.isModuleEnabled = isPressed
                 case .trigger:
-                    // Trigger: Ein Trigger schaltet um (True/False bzw. 0/1...an..aus)
                     if isPressed {
                         flex.isModuleEnabled.toggle()
                     }
@@ -833,15 +1008,14 @@ public class RaneMidiLearnService {
                 let step = isRelativeIncrement ? 0.02 : (isRelativeDecrement ? -0.02 : (normValue > 0.5 ? 0.02 : -0.02))
                 flex.inputGain = max(0.0, min(2.0, flex.inputGain + step))
             } else {
-                // Absolute mapping: 0.0 (-inf dB) to 2.0 (+6 dB boost). 0.5 is 1.0 (0 dB unity)
                 flex.inputGain = Double(normValue * 2.0)
             }
         case .inputSelect:
             if interactionType == .button {
                 if isPressed { flex.cycleInputSource() }
             } else {
-                let all = FlexFxInputSource.allCases
-                let idx = min(all.count - 1, max(0, Int(normValue * Float(all.count))))
+                let all = FlexFxInputSource.orderedByChannel
+                let idx = min(all.count - 1, max(0, Int(round(normValue * Float(all.count - 1)))))
                 flex.inputSource = all[idx]
             }
         case .inputFlexFx:

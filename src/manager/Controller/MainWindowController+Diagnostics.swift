@@ -61,12 +61,57 @@ extension MainWindowController {
                 }
 
                 if let fw = fwInfo {
-                    let revText = fw.serial.isEmpty ? "" : " (Hardware Rev: \(fw.serial))"
-                    self.firmwareStatusLabel?.stringValue = "🟢 \(fw.version)\(revText)"
-                    self.firmwareStatusLabel?.textColor = NSColor.systemGreen
+                    self.isCustomFirmwareDetected = fw.isCustom
+                    let revText = fw.serial.isEmpty ? "" : " (Rev: \(fw.serial))"
+                    if fw.isCustom {
+                        self.firmwareStatusLabel?.stringValue = "🟢 \(fw.version)\(revText)"
+                        self.firmwareStatusLabel?.textColor = NSColor.systemGreen
+                    } else {
+                        self.firmwareStatusLabel?.stringValue = "🟡 \(fw.version)\(revText)"
+                        self.firmwareStatusLabel?.textColor = NSColor.systemOrange
+                    }
+
+                    if hasDevice {
+                        let shortFw = fw.isCustom ? "FW v2.00 Custom" : "FW v1.40 Orig."
+                        self.headerStatusBadge?.stringValue = Localization.tr(
+                            en: "  ● Connected (\(shortFw))  ",
+                            de: "  ● Verbunden (\(shortFw))  "
+                        )
+                    }
+
+                    if let badge = self.pgmFirmwareFeatureBadge {
+                        if fw.isCustom {
+                            badge.stringValue = Localization.tr(
+                                en: "  🟢 FW v2.00 Custom Active — LP/HP/MIDI Filter Modes Ready  ",
+                                de: "  🟢 FW v2.00 Custom aktiv — LP/HP/MIDI Filter-Modi bereit  "
+                            )
+                            badge.textColor = NSColor.systemGreen
+                            badge.layer?.backgroundColor = NSColor.systemGreen.withAlphaComponent(0.18).cgColor
+                        } else {
+                            badge.stringValue = Localization.tr(
+                                en: "  🟡 Factory FW v1.40 — Flash v2.00 Custom for Filter Modes  ",
+                                de: "  🟡 Werks-FW v1.40 — Für Filter-Modi bitte v2.00 Custom flashen  "
+                            )
+                            badge.textColor = NSColor.systemOrange
+                            badge.layer?.backgroundColor = NSColor.systemOrange.withAlphaComponent(0.18).cgColor
+                        }
+                    }
                 } else {
-                    self.firmwareStatusLabel?.stringValue = "⚪️ Nicht ermittelt (Mixer verbinden)"
+                    self.isCustomFirmwareDetected = false
+                    self.firmwareStatusLabel?.stringValue = Localization.tr(
+                        en: "⚪️ Not detected (Connect mixer — detects v2.00 Custom / v1.40 Original)",
+                        de: "⚪️ Nicht ermittelt (Mixer verbinden — erkennt v2.00 Custom / v1.40 Original)"
+                    )
                     self.firmwareStatusLabel?.textColor = NSColor.secondaryLabelColor
+
+                    if let badge = self.pgmFirmwareFeatureBadge {
+                        badge.stringValue = Localization.tr(
+                            en: "  ⚪️ Filter Modes (SysEx 0x06): Requires FW v2.00 Custom  ",
+                            de: "  ⚪️ Filter-Modi (SysEx 0x06): Erfordert FW v2.00 Custom  "
+                        )
+                        badge.textColor = NSColor.secondaryLabelColor
+                        badge.layer?.backgroundColor = NSColor(white: 0.25, alpha: 0.35).cgColor
+                    }
                 }
 
                 self.updateDiagnosticsCpu(usage: RaneCpuService.shared.systemCpuUsage)
@@ -89,29 +134,50 @@ extension MainWindowController {
         }
     }
 
-    private func queryMixerFirmware() -> (version: String, serial: String)? {
-        var iterator: io_iterator_t = 0
-        let matching = IOServiceMatching("IOUSBDevice")
-        let kr = IOServiceGetMatchingServices(mach_port_t(0), matching, &iterator)
-        if kr == KERN_SUCCESS {
-            var service = IOIteratorNext(iterator)
-            while service != 0 {
-                if let name = IORegistryEntryCreateCFProperty(service, "USB Product Name" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? String,
-                   name.localizedCaseInsensitiveContains("Rane") {
-                    let bcd = (IORegistryEntryCreateCFProperty(service, "bcdDevice" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? Int) ?? 0
-                    let serial = (IORegistryEntryCreateCFProperty(service, "kUSBSerialNumberString" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? String) ?? ""
+    private func queryMixerFirmware() -> (version: String, serial: String, isCustom: Bool, bcd: Int)? {
+        for className in ["IOUSBHostDevice", "IOUSBDevice"] {
+            var iterator: io_iterator_t = 0
+            guard let matching = IOServiceMatching(className) else { continue }
+            let kr = IOServiceGetMatchingServices(mach_port_t(0), matching, &iterator)
+            if kr == KERN_SUCCESS {
+                var service = IOIteratorNext(iterator)
+                while service != 0 {
+                    let vid = (IORegistryEntryCreateCFProperty(service, "idVendor" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? Int) ?? 0
+                    let name = (IORegistryEntryCreateCFProperty(service, "USB Product Name" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? String) ?? ""
+                    if vid == 0x1CC5 || name.localizedCaseInsensitiveContains("Rane") || name.localizedCaseInsensitiveContains("Sixty-Eight") {
+                        let bcd = (IORegistryEntryCreateCFProperty(service, "bcdDevice" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? Int) ?? 0
+                        let serial = (IORegistryEntryCreateCFProperty(service, "kUSBSerialNumberString" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? String) ?? ""
+                        IOObjectRelease(service)
+                        IOObjectRelease(iterator)
+                        let major = bcd >> 8
+                        let minor = bcd & 0xFF
+                        if major == 2 {
+                            let vStr = Localization.tr(
+                                en: "v\(major).\(String(format: "%02x", minor)) Custom (OLED + LP/HP/MIDI Filter Modes active)",
+                                de: "v\(major).\(String(format: "%02x", minor)) Custom (OLED + LP/HP/MIDI Filter-Modi aktiv)"
+                            )
+                            return (vStr, serial, true, bcd)
+                        } else if bcd == 0x9900 {
+                            let vStr = Localization.tr(
+                                en: "Bootloader Recovery Mode (0x9900)",
+                                de: "Bootloader Recovery-Modus (0x9900)"
+                            )
+                            return (vStr, serial, false, bcd)
+                        } else {
+                            let vStr = (bcd == 0x0100 || serial.contains("RH"))
+                                ? Localization.tr(
+                                    en: "v1.40 Original (Factory Firmware — without Custom Mod)",
+                                    de: "v1.40 Original (Werks-Firmware — ohne Custom-Mod)"
+                                )
+                                : "v\(major).\(String(format: "%02x", minor))"
+                            return (vStr, serial, false, bcd)
+                        }
+                    }
                     IOObjectRelease(service)
-                    IOObjectRelease(iterator)
-                    let major = bcd >> 8
-                    let minor = bcd & 0xFF
-                    // Rane Sixty-Eight USB chip reports bcd 0x0100 while internal DSP mixer board runs final v1.40
-                    let vStr = (bcd == 256 || serial.contains("RH")) ? "v1.40" : "v\(major).\(String(format: "%02x", minor))"
-                    return (vStr, serial)
+                    service = IOIteratorNext(iterator)
                 }
-                IOObjectRelease(service)
-                service = IOIteratorNext(iterator)
+                IOObjectRelease(iterator)
             }
-            IOObjectRelease(iterator)
         }
         return nil
     }

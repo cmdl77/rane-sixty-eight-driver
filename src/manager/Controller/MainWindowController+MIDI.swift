@@ -49,6 +49,7 @@ extension MainWindowController {
         for ch in channels {
             ch.phonoPopup.isEnabled = enabled
             ch.resonanceSegment.isEnabled = enabled
+            ch.filterModePopup.isEnabled = enabled
             ch.recordSegment.isEnabled = enabled
         }
 

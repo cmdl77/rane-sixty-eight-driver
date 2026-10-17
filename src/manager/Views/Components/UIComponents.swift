@@ -3,6 +3,37 @@
 
 import Cocoa
 
+// MARK: - Double-Click Resettable Slider (Fader Nullstellung)
+class RaneResettableSlider: NSSlider {
+    var defaultValue: Double = 100.0
+    var alternateDefaultValue: Double? = nil
+    private var valueBeforeFirstClick: Double = 100.0
+
+    convenience init(value: Double, minValue: Double, maxValue: Double, defaultValue: Double, alternateDefaultValue: Double? = nil, target: AnyObject?, action: Selector?) {
+        self.init(value: value, minValue: minValue, maxValue: maxValue, target: target, action: action)
+        self.defaultValue = defaultValue
+        self.alternateDefaultValue = alternateDefaultValue
+        self.valueBeforeFirstClick = value
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 1 {
+            valueBeforeFirstClick = self.doubleValue
+        } else if event.clickCount >= 2 {
+            if let alt = alternateDefaultValue, abs(valueBeforeFirstClick - defaultValue) < 1.0 {
+                self.doubleValue = alt
+            } else {
+                self.doubleValue = defaultValue
+            }
+            if let action = self.action {
+                NSApp.sendAction(action, to: self.target, from: self)
+            }
+            return
+        }
+        super.mouseDown(with: event)
+    }
+}
+
 // MARK: - Card View Containers
 class CardView: NSView {
     init(cornerRadius: CGFloat = 12, borderColor: NSColor = NSColor(white: 0.28, alpha: 0.45), fillColor: NSColor = NSColor(red: 0.176, green: 0.180, blue: 0.200, alpha: 1.0)) {

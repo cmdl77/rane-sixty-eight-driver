@@ -45,36 +45,84 @@ public enum FlexFxInputSource: Int, CaseIterable, Codable {
     case pgm4       = 4 // USB Ch 7-8  (Deck 4)
     case mainMix    = 5 // USB Ch 11-12 (Main Mix / Mic)
 
+    /// Ordered sequentially by USB Record Channel Pair (Ch 1-2 ... Ch 11-12)
+    public static var orderedByChannel: [FlexFxInputSource] {
+        return [.pgm1, .pgm2, .pgm3, .pgm4, .flexFxSend, .mainMix]
+    }
+
     public var displayName: String {
         switch self {
-        case .flexFxSend: return "FlexFX Send (Ch 9-10)"
-        case .pgm1:       return "Deck 1 / PGM 1 (Ch 1-2)"
-        case .pgm2:       return "Deck 2 / PGM 2 (Ch 3-4)"
-        case .pgm3:       return "Deck 3 / PGM 3 (Ch 5-6)"
-        case .pgm4:       return "Deck 4 / PGM 4 (Ch 7-8)"
-        case .mainMix:    return "Main Mix / Mic (Ch 11-12)"
+        case .pgm1:       return "Ch 1–2 (PGM 1 / Deck 1)"
+        case .pgm2:       return "Ch 3–4 (PGM 2 / Deck 2)"
+        case .pgm3:       return "Ch 5–6 (PGM 3 / Deck 3)"
+        case .pgm4:       return "Ch 7–8 (PGM 4 / Deck 4)"
+        case .flexFxSend: return "Ch 9–10 (FlexFX Send)"
+        case .mainMix:    return "Ch 11–12 (Main Mix / Mic)"
         }
     }
 
     public var shortName: String {
         switch self {
-        case .flexFxSend: return "FLEXFX"
-        case .pgm1:       return "DECK 1"
-        case .pgm2:       return "DECK 2"
-        case .pgm3:       return "DECK 3"
-        case .pgm4:       return "DECK 4"
-        case .mainMix:    return "MAIN"
+        case .pgm1:       return "CH 1-2 (PGM 1)"
+        case .pgm2:       return "CH 3-4 (PGM 2)"
+        case .pgm3:       return "CH 5-6 (PGM 3)"
+        case .pgm4:       return "CH 7-8 (PGM 4)"
+        case .flexFxSend: return "CH 9-10 (FLEXFX)"
+        case .mainMix:    return "CH 11-12 (MAIN)"
         }
     }
 
     public var channelOffset: Int {
         switch self {
-        case .flexFxSend: return 8
         case .pgm1:       return 0
         case .pgm2:       return 2
         case .pgm3:       return 4
         case .pgm4:       return 6
+        case .flexFxSend: return 8
         case .mainMix:    return 10
+        }
+    }
+}
+
+public enum FlexFxOutputDestination: Int, CaseIterable, Codable {
+    case flexFxReturn = 0 // USB Ch 9-10 (Mixer HW FlexFX Return Bus, default)
+    case pgm1         = 1 // USB Ch 1-2  (Deck 1)
+    case pgm2         = 2 // USB Ch 3-4  (Deck 2)
+    case pgm3         = 3 // USB Ch 5-6  (Deck 3)
+    case pgm4         = 4 // USB Ch 7-8  (Deck 4)
+
+    /// Ordered sequentially by USB Playback Channel Pair (Ch 1-2 ... Ch 9-10)
+    public static var orderedByChannel: [FlexFxOutputDestination] {
+        return [.pgm1, .pgm2, .pgm3, .pgm4, .flexFxReturn]
+    }
+
+    public var displayName: String {
+        switch self {
+        case .pgm1:         return "Ch 1–2 (PGM 1 / Deck 1)"
+        case .pgm2:         return "Ch 3–4 (PGM 2 / Deck 2)"
+        case .pgm3:         return "Ch 5–6 (PGM 3 / Deck 3)"
+        case .pgm4:         return "Ch 7–8 (PGM 4 / Deck 4)"
+        case .flexFxReturn: return "Ch 9–10 (FlexFX Return)"
+        }
+    }
+
+    public var shortName: String {
+        switch self {
+        case .pgm1:         return "CH 1-2 (PGM 1)"
+        case .pgm2:         return "CH 3-4 (PGM 2)"
+        case .pgm3:         return "CH 5-6 (PGM 3)"
+        case .pgm4:         return "CH 7-8 (PGM 4)"
+        case .flexFxReturn: return "CH 9-10 (RETURN)"
+        }
+    }
+
+    public var channelOffset: Int {
+        switch self {
+        case .pgm1:         return 0
+        case .pgm2:         return 2
+        case .pgm3:         return 4
+        case .pgm4:         return 6
+        case .flexFxReturn: return 8
         }
     }
 }
@@ -158,6 +206,7 @@ class RaneFlexFxService {
     // Master Module Power Switch (Turns entire module ON or OFF)
     var isModuleEnabled: Bool = true {
         didSet {
+            rane_vst_set_tempo(bpm, sampleRate, isModuleEnabled, true)
             if isModuleEnabled {
                 updateHardwareLeds()
                 startAudioEngine()
@@ -186,6 +235,7 @@ class RaneFlexFxService {
     }
     var bpm: Double = 124.0 {
         didSet {
+            rane_vst_set_tempo(bpm, sampleRate, isModuleEnabled, true)
             notifyStateChanged()
             if isLinkEnabled || isModuleEnabled {
                 RaneMidiService.shared.sendHardwareBpmSync(bpm: bpm, beatPulse: isLinkEnabled)
@@ -238,6 +288,10 @@ class RaneFlexFxService {
             updateHardwareLeds()
         }
     }
+
+    // =========================================================================
+    // PARALLEL 3-BUS MATRIX (AUDIO SIGNALFLUSS & MIDI STEUERUNG)
+    // =========================================================================
     private let inputSourceKey = "RaneSixtyEight_FlexFxInputSource_v1"
     public var inputSource: FlexFxInputSource = .flexFxSend {
         didSet {
@@ -247,14 +301,156 @@ class RaneFlexFxService {
         }
     }
 
-    public func cycleInputSource() {
-        let all = FlexFxInputSource.allCases
-        let nextIdx = (inputSource.rawValue + 1) % all.count
-        inputSource = all[nextIdx]
+    private let outputDestKey = "RaneSixtyEight_FlexFxOutputDest_v1"
+    public var outputDestination: FlexFxOutputDestination = .flexFxReturn {
+        didSet {
+            UserDefaults.standard.set(outputDestination.rawValue, forKey: outputDestKey)
+            notifyStateChanged()
+            updateHardwareLeds()
+        }
     }
 
+    public func cycleInputSource(forward: Bool = true) {
+        let ordered = FlexFxInputSource.orderedByChannel
+        let currentIdx = ordered.firstIndex(of: inputSource) ?? 0
+        if forward {
+            inputSource = ordered[(currentIdx + 1) % ordered.count]
+        } else {
+            inputSource = ordered[(currentIdx - 1 + ordered.count) % ordered.count]
+        }
+    }
+
+    public func cycleOutputDestination(forward: Bool = true) {
+        let ordered = FlexFxOutputDestination.orderedByChannel
+        let currentIdx = ordered.firstIndex(of: outputDestination) ?? 0
+        if forward {
+            outputDestination = ordered[(currentIdx + 1) % ordered.count]
+        } else {
+            outputDestination = ordered[(currentIdx - 1 + ordered.count) % ordered.count]
+        }
+    }
+
+    // Path 1: VST Effekt 1 (Pre-Gain -> VST 1 [ON/OFF] -> Post-Gain)
+    private let fx1PreGainKey      = "RaneSixtyEight_Fx1PreGain_v1"
+    private let fx1PostGainKey     = "RaneSixtyEight_Fx1PostGain_v1"
+    private let fx1EnabledKey      = "RaneSixtyEight_Fx1Enabled_v1"
+    private let fx1DryDuckRatioKey = "RaneSixtyEight_Fx1DryDuckRatio_v1"
+
+    public var fx1PreGain: Double = 0.0 { // 0.0 (-inf dB closed) ... 1.0 (0 dB) ... 1.5 (+3.5 dB)
+        didSet {
+            UserDefaults.standard.set(fx1PreGain, forKey: fx1PreGainKey)
+            recalculateLinkedDryPreGain()
+            notifyStateChanged()
+        }
+    }
+    public var fx1DryDuckRatio: Double = 0.5 { // 0.0 (0% no ducking) ... 1.0 (100% full dry cut at 0dB pre-gain)
+        didSet {
+            UserDefaults.standard.set(fx1DryDuckRatio, forKey: fx1DryDuckRatioKey)
+            recalculateLinkedDryPreGain()
+            notifyStateChanged()
+        }
+    }
+    public var isFx1Enabled: Bool = true {
+        didSet {
+            UserDefaults.standard.set(isFx1Enabled, forKey: fx1EnabledKey)
+            notifyStateChanged()
+            updateHardwareLeds()
+        }
+    }
+    public var fx1PostGain: Double = 1.0 {
+        didSet {
+            UserDefaults.standard.set(fx1PostGain, forKey: fx1PostGainKey)
+            notifyStateChanged()
+        }
+    }
+
+    // Path 2: VST Effekt 2 (Pre-Gain -> VST 2 [ON/OFF] -> Post-Gain)
+    private let fx2PreGainKey      = "RaneSixtyEight_Fx2PreGain_v1"
+    private let fx2PostGainKey     = "RaneSixtyEight_Fx2PostGain_v1"
+    private let fx2EnabledKey      = "RaneSixtyEight_Fx2Enabled_v1"
+    private let fx2DryDuckRatioKey = "RaneSixtyEight_Fx2DryDuckRatio_v1"
+
+    public var fx2PreGain: Double = 0.0 {
+        didSet {
+            UserDefaults.standard.set(fx2PreGain, forKey: fx2PreGainKey)
+            recalculateLinkedDryPreGain()
+            notifyStateChanged()
+        }
+    }
+    public var fx2DryDuckRatio: Double = 0.5 { // 0.0 (0% no ducking) ... 1.0 (100% full dry cut at 0dB pre-gain)
+        didSet {
+            UserDefaults.standard.set(fx2DryDuckRatio, forKey: fx2DryDuckRatioKey)
+            recalculateLinkedDryPreGain()
+            notifyStateChanged()
+        }
+    }
+    public var isFx2Enabled: Bool = false {
+        didSet {
+            UserDefaults.standard.set(isFx2Enabled, forKey: fx2EnabledKey)
+            notifyStateChanged()
+            updateHardwareLeds()
+        }
+    }
+    public var fx2PostGain: Double = 1.0 {
+        didSet {
+            UserDefaults.standard.set(fx2PostGain, forKey: fx2PostGainKey)
+            notifyStateChanged()
+        }
+    }
+
+    // Path 3: Dry / Direct Bypass Bus (Pre-Gain -> Direct -> Post-Gain)
+    private let dryPreGainKey     = "RaneSixtyEight_DryPreGain_v1"
+    private let dryBasePreGainKey = "RaneSixtyEight_DryBasePreGain_v1"
+    private let dryPostGainKey    = "RaneSixtyEight_DryPostGain_v1"
+    private var isUpdatingLinkedDry: Bool = false
+
+    // Ausgangsstellung (Base level) to which Dry Pre-Gain returns when VST 1 & VST 2 Pre-Gain are turned down
+    public var dryBasePreGain: Double = 1.0 {
+        didSet {
+            UserDefaults.standard.set(dryBasePreGain, forKey: dryBasePreGainKey)
+        }
+    }
+
+    public var dryPreGain: Double = 1.0 {
+        didSet {
+            UserDefaults.standard.set(dryPreGain, forKey: dryPreGainKey)
+            if !isUpdatingLinkedDry {
+                dryBasePreGain = dryPreGain
+            }
+            notifyStateChanged()
+        }
+    }
+    public var dryPostGain: Double = 1.0 {
+        didSet {
+            UserDefaults.standard.set(dryPostGain, forKey: dryPostGainKey)
+            notifyStateChanged()
+        }
+    }
+
+    /// Proportionally reduces Dry Pre-Gain when VST 1 Pre-Gain or VST 2 Pre-Gain is turned up,
+    /// and restores Dry Pre-Gain to its Ausgangsstellung (`dryBasePreGain`) when turned back down.
+    public func recalculateLinkedDryPreGain() {
+        let ratio1 = min(1.0, max(0.0, fx1DryDuckRatio))
+        let ratio2 = min(1.0, max(0.0, fx2DryDuckRatio))
+        guard ratio1 > 0.0001 || ratio2 > 0.0001 else { return }
+
+        // Normalized send amount (0.0 = -inf dB closed, 1.0 = 0.0 dB unity)
+        let send1 = min(1.0, max(0.0, fx1PreGain))
+        let send2 = min(1.0, max(0.0, fx2PreGain))
+
+        let duck1 = send1 * ratio1
+        let duck2 = send2 * ratio2
+        let totalDuck = min(1.0, max(0.0, duck1 + duck2))
+
+        let targetDry = max(0.0, dryBasePreGain * (1.0 - totalDuck))
+        isUpdatingLinkedDry = true
+        self.dryPreGain = targetDry
+        isUpdatingLinkedDry = false
+    }
+
+    // Legacy compatibility alias
     private let inputGainKey = "RaneSixtyEight_FlexFxInputGain_v1"
-    public var inputGain: Double = 1.0 { // 0.0 (-inf dB) ... 1.0 (0 dB unity) ... 2.0 (+6 dB)
+    public var inputGain: Double = 1.0 {
         didSet {
             UserDefaults.standard.set(inputGain, forKey: inputGainKey)
             notifyStateChanged()
@@ -343,6 +539,21 @@ class RaneFlexFxService {
     private let scratchOutL: UnsafeMutablePointer<Float>
     private let scratchOutR: UnsafeMutablePointer<Float>
 
+    // Parallel Path 1 (VST 1) & Path 2 (VST 2) RT buffers
+    private let path1InL: UnsafeMutablePointer<Float>
+    private let path1InR: UnsafeMutablePointer<Float>
+    private let path1OutL: UnsafeMutablePointer<Float>
+    private let path1OutR: UnsafeMutablePointer<Float>
+    private let path2InL: UnsafeMutablePointer<Float>
+    private let path2InR: UnsafeMutablePointer<Float>
+    private let path2OutL: UnsafeMutablePointer<Float>
+    private let path2OutR: UnsafeMutablePointer<Float>
+
+    // Live per-path peak meters (0.0 .. 1.0)
+    public private(set) var liveFx1Peak: Float = 0.0
+    public private(set) var liveFx2Peak: Float = 0.0
+    public private(set) var liveDryPeak: Float = 0.0
+
     // DSP Buffers (DaisySP DelayLine & Reverb internal state)
     private var sampleRate: Double = 48000.0
     private let maxDelaySamples: Int = 48000 * 8 // Up to 8 seconds at 48kHz
@@ -411,6 +622,24 @@ class RaneFlexFxService {
         scratchOutL.initialize(repeating: 0.0, count: maxFramesPerBlock)
         scratchOutR.initialize(repeating: 0.0, count: maxFramesPerBlock)
 
+        path1InL  = UnsafeMutablePointer<Float>.allocate(capacity: maxFramesPerBlock)
+        path1InR  = UnsafeMutablePointer<Float>.allocate(capacity: maxFramesPerBlock)
+        path1OutL = UnsafeMutablePointer<Float>.allocate(capacity: maxFramesPerBlock)
+        path1OutR = UnsafeMutablePointer<Float>.allocate(capacity: maxFramesPerBlock)
+        path2InL  = UnsafeMutablePointer<Float>.allocate(capacity: maxFramesPerBlock)
+        path2InR  = UnsafeMutablePointer<Float>.allocate(capacity: maxFramesPerBlock)
+        path2OutL = UnsafeMutablePointer<Float>.allocate(capacity: maxFramesPerBlock)
+        path2OutR = UnsafeMutablePointer<Float>.allocate(capacity: maxFramesPerBlock)
+
+        path1InL.initialize(repeating: 0.0, count: maxFramesPerBlock)
+        path1InR.initialize(repeating: 0.0, count: maxFramesPerBlock)
+        path1OutL.initialize(repeating: 0.0, count: maxFramesPerBlock)
+        path1OutR.initialize(repeating: 0.0, count: maxFramesPerBlock)
+        path2InL.initialize(repeating: 0.0, count: maxFramesPerBlock)
+        path2InR.initialize(repeating: 0.0, count: maxFramesPerBlock)
+        path2OutL.initialize(repeating: 0.0, count: maxFramesPerBlock)
+        path2OutR.initialize(repeating: 0.0, count: maxFramesPerBlock)
+
         // Allocate Delay Line buffers
         delayBufferL = UnsafeMutablePointer<Float>.allocate(capacity: maxDelaySamples)
         delayBufferR = UnsafeMutablePointer<Float>.allocate(capacity: maxDelaySamples)
@@ -419,14 +648,55 @@ class RaneFlexFxService {
 
         initDspBuffers()
         loadFxParams()
+
         if let savedSource = UserDefaults.standard.object(forKey: inputSourceKey) as? Int,
            let src = FlexFxInputSource(rawValue: savedSource) {
             self.inputSource = src
         }
-        if UserDefaults.standard.object(forKey: inputGainKey) != nil {
-            let savedGain = UserDefaults.standard.double(forKey: inputGainKey)
-            self.inputGain = max(0.0, min(2.0, savedGain))
+        if let savedDest = UserDefaults.standard.object(forKey: outputDestKey) as? Int,
+           let dst = FlexFxOutputDestination(rawValue: savedDest) {
+            self.outputDestination = dst
         }
+
+        if UserDefaults.standard.object(forKey: dryBasePreGainKey) != nil {
+            self.dryBasePreGain = max(0.0, min(2.0, UserDefaults.standard.double(forKey: dryBasePreGainKey)))
+        } else {
+            self.dryBasePreGain = 1.0
+        }
+        if UserDefaults.standard.object(forKey: fx1DryDuckRatioKey) != nil {
+            self.fx1DryDuckRatio = max(0.0, min(1.0, UserDefaults.standard.double(forKey: fx1DryDuckRatioKey)))
+        }
+        if UserDefaults.standard.object(forKey: fx2DryDuckRatioKey) != nil {
+            self.fx2DryDuckRatio = max(0.0, min(1.0, UserDefaults.standard.double(forKey: fx2DryDuckRatioKey)))
+        }
+
+        if UserDefaults.standard.object(forKey: fx1PreGainKey) != nil {
+            self.fx1PreGain = max(0.0, min(2.0, UserDefaults.standard.double(forKey: fx1PreGainKey)))
+        }
+        if UserDefaults.standard.object(forKey: fx1PostGainKey) != nil {
+            self.fx1PostGain = max(0.0, min(2.0, UserDefaults.standard.double(forKey: fx1PostGainKey)))
+        }
+        if UserDefaults.standard.object(forKey: fx1EnabledKey) != nil {
+            self.isFx1Enabled = UserDefaults.standard.bool(forKey: fx1EnabledKey)
+        }
+
+        if UserDefaults.standard.object(forKey: fx2PreGainKey) != nil {
+            self.fx2PreGain = max(0.0, min(2.0, UserDefaults.standard.double(forKey: fx2PreGainKey)))
+        }
+        if UserDefaults.standard.object(forKey: fx2PostGainKey) != nil {
+            self.fx2PostGain = max(0.0, min(2.0, UserDefaults.standard.double(forKey: fx2PostGainKey)))
+        }
+        if UserDefaults.standard.object(forKey: fx2EnabledKey) != nil {
+            self.isFx2Enabled = UserDefaults.standard.bool(forKey: fx2EnabledKey)
+        }
+
+        if UserDefaults.standard.object(forKey: dryPostGainKey) != nil {
+            self.dryPostGain = max(0.0, min(2.0, UserDefaults.standard.double(forKey: dryPostGainKey)))
+        }
+
+        recalculateLinkedDryPreGain()
+
+        rane_vst_set_tempo(bpm, sampleRate, isModuleEnabled, true)
         setupNativeAbletonLink()
         rescheduleHardwareBeatSyncTimer()
         startAudioEngine()
@@ -440,6 +710,14 @@ class RaneFlexFxService {
         scratchInR.deallocate()
         scratchOutL.deallocate()
         scratchOutR.deallocate()
+        path1InL.deallocate()
+        path1InR.deallocate()
+        path1OutL.deallocate()
+        path1OutR.deallocate()
+        path2InL.deallocate()
+        path2InR.deallocate()
+        path2OutL.deallocate()
+        path2OutR.deallocate()
         delayBufferL.deallocate()
         delayBufferR.deallocate()
     }
@@ -503,6 +781,7 @@ class RaneFlexFxService {
         var srSize = UInt32(MemoryLayout<Float64>.size)
         if AudioObjectGetPropertyData(devId, &srAddr, 0, nil, &srSize, &sr) == noErr && sr > 8000.0 {
             self.sampleRate = sr
+            rane_vst_set_tempo(bpm, sampleRate, isModuleEnabled, true)
         }
 
         // Register CoreAudio IO Callback
@@ -604,14 +883,13 @@ class RaneFlexFxService {
             return
         }
 
-        // 1. Capture USB In from selected input source (FlexFX Send Ch 9-10, Deck 1..4, or Main Mix)
+        // 1. Capture USB Record stereo pair from selected input source (Ch 1-12)
         var maxIn: Float = 0.0
-        let chOffset = inputSource.channelOffset
-        let gain = Float(inputGain)
-        if inChannels >= chOffset + 2 {
+        let inOffset = inputSource.channelOffset
+        if inChannels >= inOffset + 2 {
             for f in 0..<frames {
-                let sL = inPtr[f * inChannels + chOffset] * gain
-                let sR = inPtr[f * inChannels + chOffset + 1] * gain
+                let sL = inPtr[f * inChannels + inOffset]
+                let sR = inPtr[f * inChannels + inOffset + 1]
                 scratchInL[f] = sL
                 scratchInR[f] = sR
                 let al = abs(sL)
@@ -625,36 +903,31 @@ class RaneFlexFxService {
         }
         liveSendPeak = maxIn
 
-        // 2. Process through DaisySP DSP Block (or clean dry bypass when module/effect is inactive)
+        // 2. Process through Parallel 3-Bus Matrix (VST 1 + VST 2 + Dry Bypass)
         processStereoBlock(inL: scratchInL, inR: scratchInR,
                            outL: scratchOutL, outR: scratchOutR,
                            frames: frames)
 
-        // 3. Write to USB Out Channels (10 Channels Total):
-        // Channels 0..7 (Decks 1-4): Set to 0.0 so we do not overwrite or interfere with other DJ playback
-        // Channels 8 & 9 (FLEXFX RETURN): Output our processed wet/dry audio back into the mixer's return loop!
+        // 3. Write summed output to selected USB Playback stereo pair (Ch 1-10)
+        // Other channels of our IOProc are set to 0.0 so we never interfere with DJ software playback
         var maxOut: Float = 0.0
+        let outOffset = outputDestination.channelOffset
         for f in 0..<frames {
             let offset = f * outChannels
-            for c in 0..<min(8, outChannels) {
+            for c in 0..<outChannels {
                 outPtr[offset + c] = 0.0
             }
-            if outChannels > 8 {
+            if outChannels > outOffset {
                 let retL = scratchOutL[f]
-                outPtr[offset + 8] = retL
+                outPtr[offset + outOffset] = retL
                 let al = abs(retL)
                 if al > maxOut { maxOut = al }
             }
-            if outChannels > 9 {
+            if outChannels > outOffset + 1 {
                 let retR = scratchOutR[f]
-                outPtr[offset + 9] = retR
+                outPtr[offset + outOffset + 1] = retR
                 let ar = abs(retR)
                 if ar > maxOut { maxOut = ar }
-            }
-            if outChannels > 10 {
-                for c in 10..<outChannels {
-                    outPtr[offset + c] = 0.0
-                }
             }
         }
         liveReturnPeak = maxOut
@@ -734,14 +1007,12 @@ class RaneFlexFxService {
 
     // MARK: - Hardware LED Synchronization (Add Out Mapping Support)
     func updateHardwareLeds() {
-        guard RaneMidiService.shared.isConnected else { return }
         let learn = RaneMidiLearnService.shared
         let midi = RaneMidiService.shared
 
         // If module is disabled, all effect LEDs are turned off, but modulePower and abletonLink should reflect their states
         if !isModuleEnabled {
             clearAllHardwareLeds()
-            // Ensure modulePower LED reflects its off state (offValue)
             if let pwrMap = learn.outMappingFor(target: .modulePower) {
                 let ch = (pwrMap.channel == 255) ? 0 : pwrMap.channel
                 if pwrMap.type == .note {
@@ -754,7 +1025,6 @@ class RaneFlexFxService {
                     midi.sendCC(cc: pwrMap.number, value: pwrMap.offValue, channel: ch)
                 }
             }
-            // Ensure abletonLink LED reflects global Link state even when FlexFX module is off
             if let linkMap = learn.outMappingFor(target: .abletonLink) {
                 let ch = (linkMap.channel == 255) ? 0 : linkMap.channel
                 let vel = isLinkEnabled ? linkMap.onValue : linkMap.offValue
@@ -780,6 +1050,8 @@ class RaneFlexFxService {
         // Evaluate state for each target
         let targetStates: [FlexFxMidiTarget: Bool] = [
             .modulePower: isModuleOn,
+            .vst1Toggle:  isFx1Enabled,
+            .vst2Toggle:  isFx2Enabled,
             .fxToggle:    isFxOn,
             .fxFilter:    (currentFx == .filter),
             .fxFlanger:   (currentFx == .flanger),
@@ -816,31 +1088,23 @@ class RaneFlexFxService {
             }
         }
 
-        // 2. Fallback for Sixty-Eight default hardware LEDs if not overridden by any Out-Mapping
-        let fxMap: [(FlexFxType, FlexFxMidiTarget, UInt8)] = [
-            (.filter,   .fxFilter,   12),
-            (.flanger,  .fxFlanger,  11),
-            (.phaser,   .fxPhaser,   10),
-            (.echo,     .fxEcho,     13),
-            (.dubDelay, .fxDubDelay,  9),
-            (.reverb,   .fxReverb,    8)
-        ]
-        // If the user has mapped any custom Out-LEDs for effects, only send fallback for notes not touched by handledNotes
-        for (fx, target, note) in fxMap {
-            if !handledNotes.contains(note) {
-                // If user already mapped this specific FX to another LED, don't light up the factory LED either
-                if learn.outMappingFor(target: target) != nil {
-                    continue
-                }
-                if fx == currentFx {
-                    midi.sendNoteOn(note: note, velocity: 127, channel: 0)
-                } else {
-                    midi.sendNoteOff(note: note, channel: 0)
-                }
+        // 2. Default Sixty-Eight Hardware LED feedback for VST 1 (Note 13) & VST 2 (Note 8) if not overridden
+        if !handledNotes.contains(13) && learn.outMappingFor(target: .vst1Toggle) == nil {
+            if isFx1Enabled {
+                midi.sendNoteOn(note: 13, velocity: 127, channel: 0)
+            } else {
+                midi.sendNoteOff(note: 13, channel: 0)
+            }
+        }
+        if !handledNotes.contains(8) && learn.outMappingFor(target: .vst2Toggle) == nil {
+            if isFx2Enabled {
+                midi.sendNoteOn(note: 8, velocity: 127, channel: 0)
+            } else {
+                midi.sendNoteOff(note: 8, channel: 0)
             }
         }
         if !handledNotes.contains(0) && learn.outMappingFor(target: .fxToggle) == nil {
-            if isFxOn {
+            if isFx1Enabled || isFx2Enabled {
                 midi.sendNoteOn(note: 0, velocity: 127, channel: 0)
             } else {
                 midi.sendNoteOff(note: 0, channel: 0)
@@ -849,7 +1113,6 @@ class RaneFlexFxService {
     }
 
     func clearAllHardwareLeds() {
-        guard RaneMidiService.shared.isConnected else { return }
         let learn = RaneMidiLearnService.shared
         let midi = RaneMidiService.shared
 
@@ -893,8 +1156,6 @@ class RaneFlexFxService {
     }
 
     func tapTempo() {
-        // Tap tempo is only allowed when Link is OFF (Standalone Mode)
-        guard isModuleEnabled && !isLinkEnabled else { return }
         let now = Date().timeIntervalSince1970
         if lastTapTime > 0 && (now - lastTapTime) < 2.0 {
             tapTimes.append(now - lastTapTime)
@@ -927,7 +1188,7 @@ class RaneFlexFxService {
         return beatSec * currentDivision.multiplier * 1000.0
     }
 
-    // MARK: - DaisySP Audio Processing Block (Stereo In/Out)
+    // MARK: - Parallel 3-Bus Audio Processing Block (Stereo In/Out)
     func processStereoBlock(inL: UnsafePointer<Float>, inR: UnsafePointer<Float>,
                             outL: UnsafeMutablePointer<Float>, outR: UnsafeMutablePointer<Float>,
                             frames: Int) {
@@ -937,66 +1198,113 @@ class RaneFlexFxService {
                 outL[i] = inL[i]
                 outR[i] = inR[i]
             }
+            liveFx1Peak = 0.0
+            liveFx2Peak = 0.0
+            liveDryPeak = liveSendPeak
             return
         }
 
-        // PRE-FADER MODE: Hard bypass when effect is switched off
-        if isPreFader && !isEnabled {
+        let host = RanePluginHostService.shared
+
+        // ---------------------------------------------------------------------
+        // PATH 1 (TOP): Input -> Pre-Gain 1 -> VST Effekt 1 (Slot 0) -> Post-Gain 1
+        // ---------------------------------------------------------------------
+        let pre1  = Float(fx1PreGain)
+        let post1 = Float(fx1PostGain)
+        var maxP1: Float = 0.0
+
+        if isFx1Enabled {
             for i in 0..<frames {
-                outL[i] = inL[i]
-                outR[i] = inR[i]
+                path1InL[i] = inL[i] * pre1
+                path1InR[i] = inR[i] * pre1
             }
-            return
+            if !host.processSlot(0, inL: path1InL, inR: path1InR, outL: path1OutL, outR: path1OutR, frames: frames, bpm: bpm, sampleRate: sampleRate) {
+                let fxType = host.slots.count > 0 ? host.slots[0].defaultType : .echo
+                processInternalDaisySp(fxType: fxType, inL: path1InL, inR: path1InR, outL: path1OutL, outR: path1OutR, frames: frames)
+            }
+            for i in 0..<frames {
+                let l = path1OutL[i] * post1
+                let r = path1OutR[i] * post1
+                path1OutL[i] = l
+                path1OutR[i] = r
+                let m = max(abs(l), abs(r))
+                if m > maxP1 { maxP1 = m }
+            }
+        } else {
+            for i in 0..<frames {
+                path1OutL[i] = 0.0
+                path1OutR[i] = 0.0
+            }
         }
+        liveFx1Peak = maxP1
 
-        // POST-FADER MODE: When isEnabled is true, signal feeds effect normally.
-        // When isEnabled is false (in post mode), fxIn becomes 0.0 (muted input),
-        // but the internal reverb & echo feedback delay lines continue to decay naturally ("Hallfahne").
-        let fxActive = isEnabled
-        let wet = Float(dryWet)
-        let dry = 1.0 - (fxActive ? wet : 0.0) // Dry is full volume when effect bypassed
+        // ---------------------------------------------------------------------
+        // PATH 2 (MIDDLE): Input -> Pre-Gain 2 -> VST Effekt 2 (Slot 1) -> Post-Gain 2
+        // ---------------------------------------------------------------------
+        let pre2  = Float(fx2PreGain)
+        let post2 = Float(fx2PostGain)
+        var maxP2: Float = 0.0
+
+        if isFx2Enabled {
+            for i in 0..<frames {
+                path2InL[i] = inL[i] * pre2
+                path2InR[i] = inR[i] * pre2
+            }
+            if !host.processSlot(1, inL: path2InL, inR: path2InR, outL: path2OutL, outR: path2OutR, frames: frames, bpm: bpm, sampleRate: sampleRate) {
+                let fxType = host.slots.count > 1 ? host.slots[1].defaultType : .reverb
+                processInternalDaisySp(fxType: fxType, inL: path2InL, inR: path2InR, outL: path2OutL, outR: path2OutR, frames: frames)
+            }
+            for i in 0..<frames {
+                let l = path2OutL[i] * post2
+                let r = path2OutR[i] * post2
+                path2OutL[i] = l
+                path2OutR[i] = r
+                let m = max(abs(l), abs(r))
+                if m > maxP2 { maxP2 = m }
+            }
+        } else {
+            for i in 0..<frames {
+                path2OutL[i] = 0.0
+                path2OutR[i] = 0.0
+            }
+        }
+        liveFx2Peak = maxP2
+
+        // ---------------------------------------------------------------------
+        // PATH 3 (BOTTOM - DRY) & MASTER SUM TO OUTPUT
+        // Input -> Dry Pre-Gain -> Direct Pass-Through -> Dry Post-Gain
+        // ---------------------------------------------------------------------
+        let dryGain = Float(dryPreGain) * Float(dryPostGain)
+        var maxDry: Float = 0.0
+
+        for i in 0..<frames {
+            let dL = inL[i] * dryGain
+            let dR = inR[i] * dryGain
+            let m = max(abs(dL), abs(dR))
+            if m > maxDry { maxDry = m }
+
+            outL[i] = path1OutL[i] + path2OutL[i] + dL
+            outR[i] = path1OutR[i] + path2OutR[i] + dR
+        }
+        liveDryPeak = maxDry
+    }
+
+    // Internal fallback DaisySP processing when a slot is configured to an internal algorithm instead of an external VST/AU
+    private func processInternalDaisySp(fxType: FlexFxType,
+                                        inL: UnsafePointer<Float>, inR: UnsafePointer<Float>,
+                                        outL: UnsafeMutablePointer<Float>, outR: UnsafeMutablePointer<Float>,
+                                        frames: Int) {
         let fb = Float(min(0.92, depth * 0.88))
-
-        // 1. Check if current slot has an external hosted VST / AudioUnit plugin loaded
-        if RanePluginHostService.shared.processSlot(currentEffect.rawValue,
-                                                   inL: inL,
-                                                   inR: inR,
-                                                   outL: scratchOutL,
-                                                   outR: scratchOutR,
-                                                   frames: frames) {
-            for i in 0..<frames {
-                let xL = inL[i]
-                let xR = inR[i]
-                let wL = scratchOutL[i]
-                let wR = scratchOutR[i]
-                if fxActive {
-                    outL[i] = (xL * dry) + (wL * wet)
-                    outR[i] = (xR * dry) + (wR * wet)
-                } else {
-                    outL[i] = xL
-                    outR[i] = xR
-                }
-            }
-            return
-        }
-
         let delaySamples = min(maxDelaySamples - 1, max(1, Int((delayTimeMs / 1000.0) * sampleRate)))
 
         for i in 0..<frames {
-            let xL = inL[i]
-            let xR = inR[i]
-
-            // Feed input to effect only if effect is actively ON.
-            // If OFF (Post mode), feed 0.0 so the tail rings out without new input.
-            let fxInL = fxActive ? xL : 0.0
-            let fxInR = fxActive ? xR : 0.0
-
+            let fxInL = inL[i]
+            let fxInR = inR[i]
             var yL: Float = 0.0
             var yR: Float = 0.0
 
-            switch currentEffect {
+            switch fxType {
             case .echo:
-                // DaisySP DelayLine Ping-Pong Stereo Beat Echo with High-Cut Damping & Spread
                 let readIdx = (delayHead - delaySamples + maxDelaySamples) % maxDelaySamples
                 let dL = delayBufferL[readIdx]
                 let dR = delayBufferR[readIdx]
@@ -1018,31 +1326,26 @@ class RaneFlexFxService {
                 yR = dR
 
             case .dubDelay:
-                // Space Echo Tape Dub Delay with Analog Saturation, Resonant Tone & Wow/Flutter
                 let flutterLfo = Float(sin(dubFlutterPhase * 2.0 * .pi))
                 dubFlutterPhase += (0.8 + fxParams.dubFlutter * 2.5) / sampleRate
                 if dubFlutterPhase >= 1.0 { dubFlutterPhase -= 1.0 }
 
-                // Modulate delay time slightly for tape wow/flutter (±2 ms)
                 let flutterOffset = Int(flutterLfo * Float(fxParams.dubFlutter * 80.0))
                 let readIdx = (delayHead - delaySamples + flutterOffset + maxDelaySamples) % maxDelaySamples
                 let dL = delayBufferL[readIdx]
                 let dR = delayBufferR[readIdx]
 
-                // Low-pass tone filter on feedback (1-pole RC filter)
                 let toneFreq = Float(fxParams.dubHighCut)
                 let alpha = min(0.95, max(0.05, (2.0 * .pi * toneFreq) / Float(sampleRate)))
                 dubFilterL += alpha * (dL - dubFilterL)
                 dubFilterR += alpha * (dR - dubFilterR)
 
-                // Tape drive / saturation on feedback loop
                 let drive = Float(1.0 + fxParams.dubSaturation * 2.5)
                 let satL = tanh(dubFilterL * drive) / drive
                 let satR = tanh(dubFilterR * drive) / drive
 
                 let dubFb = Float(min(0.98, depth * (0.65 + fxParams.dubResonance * 0.33)))
 
-                // Cross feedback with vintage tape character
                 delayBufferL[delayHead] = fxInL + (satR * dubFb * 0.75) + (satL * dubFb * 0.25)
                 delayBufferR[delayHead] = fxInR + (satL * dubFb * 0.75) + (satR * dubFb * 0.25)
                 delayHead = (delayHead + 1) % maxDelaySamples
@@ -1051,7 +1354,6 @@ class RaneFlexFxService {
                 yR = satR
 
             case .reverb:
-                // Freeverb Stereo Reverb Matrix with Room Size, Damping & Stereo Width
                 let inputMono = (fxInL + fxInR) * 0.018
                 var accL: Float = 0.0
                 var accR: Float = 0.0
@@ -1073,7 +1375,6 @@ class RaneFlexFxService {
                 yR = accR * (0.5 + width * 0.5) + accL * (0.5 - width * 0.5)
 
             case .filter:
-                // Resonant State Variable Filter (SVF) with LFO Modulation
                 let lfoFreq = fxParams.filterLfoRate
                 filterLfoPhase += lfoFreq / sampleRate
                 if filterLfoPhase >= 1.0 { filterLfoPhase -= 1.0 }
@@ -1091,7 +1392,6 @@ class RaneFlexFxService {
                 let highR = fxInR - svfLowR - q * svfBandR
                 svfBandR += cutoff * highR
 
-                // Anti-blowup clamping
                 svfLowL = max(-2.0, min(2.0, svfLowL))
                 svfLowR = max(-2.0, min(2.0, svfLowR))
 
@@ -1099,7 +1399,6 @@ class RaneFlexFxService {
                 yR = svfLowR
 
             case .flanger:
-                // Stereo BBD Flanger
                 let flangerLfoFreq = fxParams.flangerRate
                 lfoPhase += flangerLfoFreq / sampleRate
                 if lfoPhase >= 1.0 { lfoPhase -= 1.0 }
@@ -1119,7 +1418,6 @@ class RaneFlexFxService {
                 yR = dR
 
             case .phaser:
-                // 4-Stage All-pass Phaser
                 let phaserLfoFreq = fxParams.phaserRate
                 phaserLfoPhase += phaserLfoFreq / sampleRate
                 if phaserLfoPhase >= 1.0 { phaserLfoPhase -= 1.0 }
@@ -1142,8 +1440,8 @@ class RaneFlexFxService {
                 yR = sR
             }
 
-            outL[i] = (xL * dry) + (yL * wet)
-            outR[i] = (xR * dry) + (yR * wet)
+            outL[i] = yL
+            outR[i] = yR
         }
     }
 

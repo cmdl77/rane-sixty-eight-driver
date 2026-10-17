@@ -390,6 +390,12 @@ def write_flash_word(buf: bytearray, flash_addr: int, val: int) -> None:
     struct.pack_into("<I", buf, flash_addr_to_raw(flash_addr), val)
 
 
+def encode_arm_branch(src_addr: int, dst_addr: int, cond: int = 0xE, link: bool = False) -> int:
+    offset = (dst_addr - (src_addr + 8)) >> 2
+    op = 0x0B if link else 0x0A
+    return (cond << 28) | (op << 24) | (offset & 0x00FFFFFF)
+
+
 def patch_firmware_for_custom_oled(orig_fw: bytes) -> Tuple[bytes, Dict[str, int]]:
     """
     Patcht Section 2 (LPC2468 ARM7TDMI Main Firmware ab 0x08000), sodass:
@@ -399,6 +405,12 @@ def patch_firmware_for_custom_oled(orig_fw: bytes) -> Tuple[bytes, Dict[str, int
         und das Dirty-Flag [0x40000177] = 0x11 setzt.
       - update_lcd() das Mode-Flag [0x4000013B] prüft (SysEx 0x7D = Custom OLED ON,
         SysEx 0x7C = Custom OLED OFF -> zurück zu BPM:/TIME:).
+      - SysEx 0x06 (`F0 17 06 <arg> F7`, mit `arg = (ch << 4) | mode`) für jeden
+        der 4 Kanalzüge (PGM 1..4) den Hardware-Filter-Modus umschaltet:
+          * Mode 0 (0x00): Normal (Links = Low-Pass, 12h = Neutral, Rechts = High-Pass)
+          * Mode 1 (0x01): Nur Low-Pass über den vollen 270°-Regelweg (Rechts = Neutral, Links = LPF)
+          * Mode 2 (0x02): Nur High-Pass über den vollen 270°-Regelweg (Links = Neutral, Rechts = HPF)
+          * Mode 3 (0x03): Hardware-Filter AUS / Reiner MIDI-Controller (DSP fest auf 64 Neutral, USB-MIDI sendet 0..127)
     Unterstützt sowohl Firmware v1.1E (0x011E aus Serato Scratch Live 2.5)
     als auch Firmware v1.28 (0x0128 aus SIXTY-EIGHT.pkg).
     """
@@ -418,6 +430,10 @@ def patch_firmware_for_custom_oled(orig_fw: bytes) -> Tuple[bytes, Dict[str, int
             0x0BC24: 0xEBFFF380,
             0x08A44: 0xE3A09000,
             0x08A48: 0xE3A0A000,
+            0x14004: encode_arm_branch(0x14004, 0x1411C),
+            0x0BA60: encode_arm_branch(0x0BA60, 0x0C560, cond=1),
+            0x13A80: 0xE3A00001,
+            0x13A8C: 0xE3A00028,
         }
         for addr, exp_val in expected_128.items():
             actual = read_flash_word(patched, addr)
@@ -427,6 +443,7 @@ def patch_firmware_for_custom_oled(orig_fw: bytes) -> Tuple[bytes, Dict[str, int
                     f"(gefunden: 0x{actual:08X}, erwartet: 0x{exp_val:08X})"
                 )
 
+        # A) Custom OLED Patch (SysEx 0x01, 0x02, 0x7C, 0x7D)
         write_flash_word(patched, 0x0C808, 0x400000E7)  # Zeile 1 Puffer
         write_flash_word(patched, 0x0C80C, 0x400000F5)  # Zeile 2 Puffer
         write_flash_word(patched, 0x0BBC8, 0xE5C2408F)  # [0x40000176] = 0x11
@@ -441,6 +458,74 @@ def patch_firmware_for_custom_oled(orig_fw: bytes) -> Tuple[bytes, Dict[str, int
         write_flash_word(patched, 0x08A5C, 0xE3510000)  # cmp r1, #0
         write_flash_word(patched, 0x08A60, 0x1A000257)  # bne epilogue (0x093C4)
 
+        # B) Channel Strip Filter Modes (SysEx 0x06 + PGM 1..4 Filter Pot Hooks)
+        write_flash_word(patched, 0x14004, encode_arm_branch(0x14004, 0x140A8))
+        write_flash_word(patched, 0x0BB70, encode_arm_branch(0x0BB70, 0x0BC74))
+        write_flash_word(patched, 0x0BCC0, encode_arm_branch(0x0BCC0, 0x0BC74))
+        write_flash_word(patched, 0x0BA60, encode_arm_branch(0x0BA60, 0x0BCC4, cond=1))
+
+        write_flash_word(patched, 0x0BCC4, 0xE3500006)                                    # cmp r0, #6
+        write_flash_word(patched, 0x0BCC8, encode_arm_branch(0x0BCC8, 0x0C560, cond=1))   # bne #0x0C560
+        write_flash_word(patched, 0x0BCCC, 0xE59F0B2C)                                    # ldr r0, [0x0C800] (0x400001D5)
+        write_flash_word(patched, 0x0BCD0, 0xE5D00000)                                    # ldrb r0, [r0]
+        write_flash_word(patched, 0x0BCD4, encode_arm_branch(0x0BCD4, 0x0BB74))           # b #0x0BB74
+
+        write_flash_word(patched, 0x0BB74, 0xE2800003)                                    # add r0, r0, #3
+        write_flash_word(patched, 0x0BB78, 0xE20000FF)                                    # and r0, r0, #0xFF
+        write_flash_word(patched, 0x0BB7C, 0xE7D11000)                                    # ldrb r1, [r1, r0] (arg)
+        write_flash_word(patched, 0x0BB80, encode_arm_branch(0x0BB80, 0x191D4, link=True))  # bl #0x191D4
+        write_flash_word(patched, 0x0BB84, encode_arm_branch(0x0BB84, 0x0BC74))           # b #0x0BC74
+
+        cave_words_128 = [
+            0xE59F205C,  # 0x19198: ldr   r2, [pc, #0x5C]       ; r2 = 0x400018A8
+            0xE2823D35,  # 0x1919C: add   r3, r2, #0xD40        ; r3 = 0x400025E8
+            0xE0833000,  # 0x191A0: add   r3, r3, r0            ; r3 = 0x400025E8 + ch
+            0xE2241040,  # 0x191A4: eor   r1, r4, #0x40         ; r1 = r4 ^ 0x40
+            0xE5C31000,  # 0x191A8: strb  r1, [r3]              ; raw_pot_xor40[ch] = r4 ^ 0x40
+            0xE5D33004,  # 0x191AC: ldrb  r3, [r3, #4]          ; r3 = filter_mode[ch] (0..3)
+            0xE1A01004,  # 0x191B0: mov   r1, r4                ; Mode 0 (LP+HP): r1 = r4
+            0xE3530001,  # 0x191B4: cmp   r3, #1                ; compare mode with 1
+            0x02841001,  # 0x191B8: addeq r1, r4, #1            ; Mode 1 (LP): r1 = r4 + 1
+            0x01A010A1,  # 0x191BC: moveq r1, r1, lsr #1        ; Mode 1 (LP): r1 = (r4 + 1) >> 1 (0..64)
+            0x83A01040,  # 0x191C0: movhi r1, #0x40             ; Mode 2 (HP) & 3 (Off): r1 = 64
+            0xE3530002,  # 0x191C4: cmp   r3, #2                ; is it Mode 2 (HP)?
+            0x008110A4,  # 0x191C8: addeq r1, r1, r4, lsr #1    ; Mode 2 (HP): r1 = 64 + (r4 >> 1) (64..127)
+            0xE7821100,  # 0x191CC: str   r1, [r2, r0, lsl #2]  ; [0x400018A8 + ch*4] = r1
+            0xE12FFF1E,  # 0x191D0: bx    lr                    ; return!
+            0xE1A00221,  # 0x191D4: mov   r0, r1, lsr #4        ; r0 = ch
+            0xE2000003,  # 0x191D8: and   r0, r0, #3            ; clamp ch to 0..3
+            0xE2011003,  # 0x191DC: and   r1, r1, #3            ; r1 = mode (0..3)
+            0xE59F2014,  # 0x191E0: ldr   r2, [pc, #0x14]       ; r2 = 0x400018A8
+            0xE2823D35,  # 0x191E4: add   r3, r2, #0xD40        ; r3 = 0x400025E8
+            0xE0833000,  # 0x191E8: add   r3, r3, r0            ; r3 = 0x400025E8 + ch
+            0xE5C31004,  # 0x191EC: strb  r1, [r3, #4]          ; filter_mode[ch] = mode
+            0xE5D34000,  # 0x191F0: ldrb  r4, [r3]              ; r4 = raw_pot_xor40[ch]
+            0xE2244040,  # 0x191F4: eor   r4, r4, #0x40         ; r4 = raw_pot[ch] (64 if untouched)
+            encode_arm_branch(0x191F8, 0x191AC),                  # 0x191F8: b #0x191AC
+            0x400018A8,  # 0x191FC: .word 0x400018A8
+        ]
+        for idx, w in enumerate(cave_words_128):
+            write_flash_word(patched, 0x19198 + idx * 4, w)
+
+        for ch, hook_addr in [(0, 0x10F98), (1, 0x1105C), (2, 0x11120), (3, 0x111E4)]:
+            write_flash_word(patched, hook_addr + 0, 0xE3A00000 | ch)
+            write_flash_word(patched, hook_addr + 4, encode_arm_branch(hook_addr + 4, 0x19198, link=True))
+            write_flash_word(patched, hook_addr + 8, 0xE1A00000)
+
+        # C) Firmware Version Bump -> v2.00 Custom (Section 2 Opcode 0x01 & Section 6 USB bcdDevice = 0x0200)
+        write_flash_word(patched, 0x13A7C, 0xE3A00001)  # mov r0, #1
+        write_flash_word(patched, 0x13A80, 0xE5C40000)  # strb r0, [r4]     (Opcode 0x01)
+        write_flash_word(patched, 0x13A84, 0xE3A00002)  # mov r0, #2        (Major = 2)
+        write_flash_word(patched, 0x13A88, 0xE5C40001)  # strb r0, [r4, #1]
+        write_flash_word(patched, 0x13A8C, 0xE3A00000)  # mov r0, #0        (Minor = 0 -> v2.00)
+        write_flash_word(patched, 0x13A90, 0xE5C40002)  # strb r0, [r4, #2]
+
+        if patched[0x03BE8D:0x03BE8F] != b"\x00\x01" or patched[0x03BE9F:0x03BEA1] != b"\x00\x01":
+            raise RuntimeError("Sicherheitsstopp (v1.28): Unerwarteter USB bcdDevice-Wert in Section 6")
+        patched[0x03BE8D:0x03BE8F] = b"\x00\x02"  # USB Port A bcdDevice = 0x0200 (v2.00 Custom)
+        patched[0x03BE9F:0x03BEA1] = b"\x00\x02"  # USB Port B bcdDevice = 0x0200 (v2.00 Custom)
+        sec6_file_off = 0x03B640
+
     elif ver_code == 0x011E:
         # Sicherheitsprüfung der Original-Instruktionen in v1.1E (Serato Scratch Live 2.5)
         expected_11e = {
@@ -452,6 +537,10 @@ def patch_firmware_for_custom_oled(orig_fw: bytes) -> Tuple[bytes, Dict[str, int
             0x08A44: 0xE3A07000,
             0x08A48: 0xE3A08000,
             0x08A4C: 0xE3A09000,
+            0x13888: encode_arm_branch(0x13888, 0x139A0),
+            0x0BAAC: encode_arm_branch(0x0BAAC, 0x0C2C8, cond=1),
+            0x1335C: 0xE3A00001,
+            0x13368: 0xE3A0001E,
         }
         for addr, exp_val in expected_11e.items():
             actual = read_flash_word(patched, addr)
@@ -461,6 +550,7 @@ def patch_firmware_for_custom_oled(orig_fw: bytes) -> Tuple[bytes, Dict[str, int
                     f"(gefunden: 0x{actual:08X}, erwartet: 0x{exp_val:08X})"
                 )
 
+        # A) Custom OLED Patch (SysEx 0x01, 0x02, 0x7C, 0x7D)
         write_flash_word(patched, 0x0C914, 0x400000E7)  # Zeile 1 Puffer
         write_flash_word(patched, 0x0C918, 0x400000F5)  # Zeile 2 Puffer
         write_flash_word(patched, 0x0BC14, 0xE5C2908F)  # strb sb, [r2, #0x8f] -> [0x40000176] = 0x11
@@ -470,14 +560,98 @@ def patch_firmware_for_custom_oled(orig_fw: bytes) -> Tuple[bytes, Dict[str, int
         write_flash_word(patched, 0x08A44, 0xE5D11054)  # ldrb r1, [r1, #0x54] (0x4000013B)
         write_flash_word(patched, 0x08A48, 0xE3510000)  # cmp r1, #0
         write_flash_word(patched, 0x08A4C, 0x1A00028B)  # bne epilogue (0x09480)
+
+        # B) Channel Strip Filter Modes (SysEx 0x06 + PGM 1..4 Filter Pot Hooks in v1.1E)
+        write_flash_word(patched, 0x13888, encode_arm_branch(0x13888, 0x1392C))
+        write_flash_word(patched, 0x0BD70, 0xE3500001)
+        write_flash_word(patched, 0x0BD74, encode_arm_branch(0x0BD74, 0x0BDB4, cond=8))
+        write_flash_word(patched, 0x0BD78, encode_arm_branch(0x0BD78, 0x0BDAC))
+
+        write_flash_word(patched, 0x0BB20, 0xE51F1768)
+        write_flash_word(patched, 0x0BB24, 0xE5810048)
+        write_flash_word(patched, 0x0BB28, encode_arm_branch(0x0BB28, 0x0BB54))
+
+        write_flash_word(patched, 0x0BBBC, encode_arm_branch(0x0BBBC, 0x0BCC0))
+        write_flash_word(patched, 0x0BD0C, encode_arm_branch(0x0BD0C, 0x0BCC0))
+        write_flash_word(patched, 0x0BDD0, encode_arm_branch(0x0BDD0, 0x0BCC0))
+
+        write_flash_word(patched, 0x0BAAC, encode_arm_branch(0x0BAAC, 0x0BD10, cond=1))
+
+        write_flash_word(patched, 0x0BD10, 0xE3580006)
+        write_flash_word(patched, 0x0BD14, encode_arm_branch(0x0BD14, 0x0C2C8, cond=1))
+        write_flash_word(patched, 0x0BD18, 0xE59F0BF0)
+        write_flash_word(patched, 0x0BD1C, 0xE5D00000)
+        write_flash_word(patched, 0x0BD20, encode_arm_branch(0x0BD20, 0x0BB2C))
+
+        write_flash_word(patched, 0x0BB2C, 0xE2800003)
+        write_flash_word(patched, 0x0BB30, 0xE20000FF)
+        write_flash_word(patched, 0x0BB34, 0xE7D11000)
+        write_flash_word(patched, 0x0BB38, 0xE1A00221)
+        write_flash_word(patched, 0x0BB3C, 0xE2000003)
+        write_flash_word(patched, 0x0BB40, 0xE2011003)
+        write_flash_word(patched, 0x0BB44, 0xE51F278C)
+        write_flash_word(patched, 0x0BB48, encode_arm_branch(0x0BB48, 0x18AE8, link=True))
+        write_flash_word(patched, 0x0BB4C, encode_arm_branch(0x0BB4C, 0x0BCC0))
+
+        write_flash_word(patched, 0x18AE8, 0xE2822058)
+        write_flash_word(patched, 0x18AEC, 0xE2823D35)
+        write_flash_word(patched, 0x18AF0, 0xE0833000)
+        write_flash_word(patched, 0x18AF4, 0xE5C31004)
+        write_flash_word(patched, 0x18AF8, 0xE5D35000)
+        write_flash_word(patched, 0x18AFC, encode_arm_branch(0x18AFC, 0x0BD7C))
+
+        write_flash_word(patched, 0x0BD7C, 0xE2255040)
+        write_flash_word(patched, 0x0BD80, 0xE51F29C8)
+        write_flash_word(patched, 0x0BD84, 0xE2822058)
+        write_flash_word(patched, 0x0BD88, 0xE2823D35)
+        write_flash_word(patched, 0x0BD8C, 0xE0833000)
+        write_flash_word(patched, 0x0BD90, 0xE2251040)
+        write_flash_word(patched, 0x0BD94, 0xE5C31000)
+        write_flash_word(patched, 0x0BD98, 0xE5D33004)
+        write_flash_word(patched, 0x0BD9C, 0xE1A01005)
+        write_flash_word(patched, 0x0BDA0, 0xE3530001)
+        write_flash_word(patched, 0x0BDA4, 0x02851001)
+        write_flash_word(patched, 0x0BDA8, encode_arm_branch(0x0BDA8, 0x0BDD4))
+
+        write_flash_word(patched, 0x0BDD4, 0x01A010A1)
+        write_flash_word(patched, 0x0BDD8, 0x83A01040)
+        write_flash_word(patched, 0x0BDDC, 0xE3530002)
+        write_flash_word(patched, 0x0BDE0, 0x008110A5)
+        write_flash_word(patched, 0x0BDE4, encode_arm_branch(0x0BDE4, 0x0BBC0))
+        write_flash_word(patched, 0x0BBC0, 0xE7821100)
+        write_flash_word(patched, 0x0BBC4, 0xE12FFF1E)
+
+        for ch, hook_addr in [(0, 0x108A4), (1, 0x10968), (2, 0x10A2C), (3, 0x10AF0)]:
+            write_flash_word(patched, hook_addr + 0, 0xE3A00000 | ch)
+            write_flash_word(patched, hook_addr + 4, encode_arm_branch(hook_addr + 4, 0x0BD80, link=True))
+            write_flash_word(patched, hook_addr + 8, 0xE1A00000)
+
+        # C) Firmware Version Bump -> v2.00 Custom (Section 2 Opcode 0x01 & Section 6 USB bcdDevice = 0x0200)
+        write_flash_word(patched, 0x13358, 0xE3A00001)  # mov r0, #1
+        write_flash_word(patched, 0x1335C, 0xE5C60000)  # strb r0, [r6]     (Opcode 0x01)
+        write_flash_word(patched, 0x13360, 0xE3A00002)  # mov r0, #2        (Major = 2)
+        write_flash_word(patched, 0x13364, 0xE5C60001)  # strb r0, [r6, #1]
+        write_flash_word(patched, 0x13368, 0xE3A00000)  # mov r0, #0        (Minor = 0 -> v2.00)
+        write_flash_word(patched, 0x1336C, 0xE5C60002)  # strb r0, [r6, #2]
+
+        if patched[0x03B88D:0x03B88F] != b"\x00\x01" or patched[0x03B89F:0x03B8A1] != b"\x00\x01":
+            raise RuntimeError("Sicherheitsstopp (v1.1E): Unerwarteter USB bcdDevice-Wert in Section 6")
+        patched[0x03B88D:0x03B88F] = b"\x00\x02"  # USB Port A bcdDevice = 0x0200 (v2.00 Custom)
+        patched[0x03B89F:0x03B8A1] = b"\x00\x02"  # USB Port B bcdDevice = 0x0200 (v2.00 Custom)
+        sec6_file_off = 0x03AF40
     else:
         raise RuntimeError(f"Nicht unterstützte Firmware-Version: 0x{ver_code:04X}")
 
-    # Berechne alle 3 Prüfsummen-Ebenen neu (Section 2 -> Section 0 -> Header Payload)
+    # Berechne alle Prüfsummen-Ebenen neu (Section 2 + Section 6 -> Section 0 -> Header Payload)
     sec2_size = struct.unpack_from("<I", patched, 0x005C)[0]
     old_sec2_crc = struct.unpack_from("<I", patched, 0x0060)[0]
     new_sec2_crc = rane_section_crc(bytes(patched[0x03140 : 0x03140 + sec2_size]))
     struct.pack_into("<I", patched, 0x0060, new_sec2_crc)
+
+    sec6_size = struct.unpack_from("<I", patched, 0x008C)[0]
+    old_sec6_crc = struct.unpack_from("<I", patched, 0x0090)[0]
+    new_sec6_crc = rane_section_crc(bytes(patched[sec6_file_off : sec6_file_off + sec6_size]))
+    struct.pack_into("<I", patched, 0x0090, new_sec6_crc)
 
     old_sec0_crc = struct.unpack_from("<I", patched, 0x0048)[0]
     new_sec0_crc = rane_section_crc(bytes(patched[0x0004C:0x00140]))
@@ -494,6 +668,8 @@ def patch_firmware_for_custom_oled(orig_fw: bytes) -> Tuple[bytes, Dict[str, int
     crc_info = {
         "old_sec2_crc": old_sec2_crc,
         "new_sec2_crc": new_sec2_crc,
+        "old_sec6_crc": old_sec6_crc,
+        "new_sec6_crc": new_sec6_crc,
         "old_sec0_crc": old_sec0_crc,
         "new_sec0_crc": new_sec0_crc,
         "old_hdr_crc": old_hdr_crc,
@@ -506,20 +682,40 @@ def verify_in_unicorn_emulator(fw_bytes: bytes, expect_custom_oled: bool) -> boo
     """
     Lädt das Firmware-Image in den echten ARM7TDMI LPC2468 Bootloader im Unicorn-Emulator,
     führt die Hardware-CRC32-Prüfung aller 7 Sektionen aus und testet anschließend
-    SysEx 0x7D / 0x01 / 0x02 / 0x7C gegen den OLED-Bildschirmpuffer.
+    SysEx 0x7D / 0x01 / 0x02 / 0x7C gegen den OLED-Bildschirmpuffer sowie SysEx 0x06
+    gegen die 4 Kanal-Filter-Register (0x400018A8..0x400018B4) und die Firmware-Version
+    v2.00 Custom (Section 2 Opcode 0x01 + Section 6 USB bcdDevice = 0x0200).
     """
-    from unicorn import Uc, UC_ARCH_ARM, UC_MODE_ARM
-    from unicorn.arm_const import UC_ARM_REG_LR, UC_ARM_REG_R0, UC_ARM_REG_SP
+    from unicorn import Uc, UC_ARCH_ARM, UC_MODE_ARM, UC_HOOK_CODE
+    from unicorn.arm_const import (
+        UC_ARM_REG_LR,
+        UC_ARM_REG_PC,
+        UC_ARM_REG_R0,
+        UC_ARM_REG_R1,
+        UC_ARM_REG_R2,
+        UC_ARM_REG_R3,
+        UC_ARM_REG_SP,
+    )
 
     ok, msg, secs = validate_firmware_image(fw_bytes)
     if not ok:
         print(f"  [Unicorn] Image-Validierung fehlgeschlagen: {msg}")
         return False
 
-    ver_code = (fw_bytes[0x27] << 8) | fw_bytes[0x28]
+    is_128_layout = secs[2]["size"] == 70144
     mu = Uc(UC_ARCH_ARM, UC_MODE_ARM)
     mu.mem_map(0x00000000, 0x00100000)
     mu.mem_map(0x40000000, 0x00010000)
+    mu.mem_map(0x3FFF0000, 0x00010000)
+    mu.mem_map(0xE0000000, 0x00200000)
+    mu.mem_map(0xFFFF0000, 0x00010000)
+
+    # Überspringe Hardware-SPI-Warteschleifen bei der USB Opcode 0x01 Abfrage
+    def _skip_spi_wait(uc, address, size, user_data):
+        if address in (0x13970, 0x08798, 0x15270, 0x15250, 0x14890, 0x148A8):
+            uc.reg_write(UC_ARM_REG_PC, uc.reg_read(UC_ARM_REG_LR))
+
+    mu.hook_add(UC_HOOK_CODE, _skip_spi_wait)
 
     # Bootloader in 0x01000 und alle 7 Flash-Sektionen laden
     mu.mem_write(0x00001000, fw_bytes[0x00140:0x03140])
@@ -527,7 +723,7 @@ def verify_in_unicorn_emulator(fw_bytes: bytes, expect_custom_oled: bool) -> boo
         mu.mem_write(s["addr"], fw_bytes[s["file_off"] : s["file_off"] + s["size"]])
 
     # 1. Bootloader 7-Sektionen-CRC-Validator aufrufen
-    bl_crc_fn = 0x00002404 if ver_code == 0x0128 else 0x0000241C
+    bl_crc_fn = 0x00002404 if is_128_layout else 0x0000241C
     mu.reg_write(UC_ARM_REG_SP, 0x40007F00)
     mu.reg_write(UC_ARM_REG_LR, 0x00001000)
     mu.emu_start(bl_crc_fn, 0x00001000, timeout=0, count=5000000)
@@ -538,13 +734,14 @@ def verify_in_unicorn_emulator(fw_bytes: bytes, expect_custom_oled: bool) -> boo
     print("  ✓ [Unicorn] ARM7TDMI Bootloader akzeptiert alle 7 Flash-Sektionen (R0 = 1 / VALID)")
 
     # 2. Keil __scatterload ausführen (dekomprimiert SRAM RW-Daten inkl. "BPM:" / "TIME:")
-    scatter_start = 0x000080B0 if ver_code == 0x0128 else 0x000080B4
-    scatter_end = 0x000081B0 if ver_code == 0x0128 else 0x000081B4
+    scatter_start = 0x000080B0 if is_128_layout else 0x000080B4
+    scatter_end = 0x000081B0 if is_128_layout else 0x000081B4
     mu.reg_write(UC_ARM_REG_SP, 0x40007F00)
     mu.emu_start(scatter_start, scatter_end, timeout=0, count=300000)
 
-    sysex_fn = 0x0000B96C if ver_code == 0x0128 else 0x0000B9C8
-    update_lcd_fn = 0x00008A2C if ver_code == 0x0128 else 0x00008A28
+    sysex_fn = 0x0000B96C if is_128_layout else 0x0000B9C8
+    update_lcd_fn = 0x00008A2C if is_128_layout else 0x00008A28
+    pot_disp_fn = 0x00010C78 if is_128_layout else 0x00010584
 
     def send_sysex(payload: bytes) -> None:
         mu.mem_write(0x40001540, payload)
@@ -566,6 +763,29 @@ def verify_in_unicorn_emulator(fw_bytes: bytes, expect_custom_oled: bool) -> boo
     line1 = bytes(mu.mem_read(0x400000E7, 14)).decode("ascii", errors="replace")
     line2 = bytes(mu.mem_read(0x400000F5, 14)).decode("ascii", errors="replace")
 
+    # Prüfe USB Opcode 0x01 (ARM7 Firmware-Versionsabfrage) & Section 6 USB bcdDevice
+    if is_128_layout:
+        spi_fn = 0x000139B8
+        rx_addr = struct.unpack("<I", mu.mem_read(0x139E0 + 8 + 0xE50, 4))[0]
+        tx_addr = struct.unpack("<I", mu.mem_read(0x139E4 + 8 + 0xE50, 4))[0]
+        bcd_a = struct.unpack("<H", mu.mem_read(0x07A000 + 0x084D, 2))[0]
+        bcd_b = struct.unpack("<H", mu.mem_read(0x07A000 + 0x085F, 2))[0]
+    else:
+        spi_fn = 0x000132A8
+        rx_addr = struct.unpack("<I", mu.mem_read(0x132CC + 8 + 0xD7C, 4))[0]
+        tx_addr = struct.unpack("<I", mu.mem_read(0x132D0 + 8 + 0xD7C, 4))[0]
+        bcd_a = struct.unpack("<H", mu.mem_read(0x07A000 + 0x094D, 2))[0]
+        bcd_b = struct.unpack("<H", mu.mem_read(0x07A000 + 0x095F, 2))[0]
+
+    mu.mem_write(rx_addr, b"\x01" + b"\x00" * 63)
+    mu.mem_write(tx_addr, b"\x00" * 64)
+    mu.reg_write(UC_ARM_REG_R0, 0)
+    mu.reg_write(UC_ARM_REG_SP, 0x40007F00)
+    mu.reg_write(UC_ARM_REG_LR, 0x00008000)
+    mu.emu_start(spi_fn, 0x00008000, timeout=0, count=200000)
+    ver_reply = bytes(mu.mem_read(tx_addr, 8))
+    arm_major, arm_minor = ver_reply[1], ver_reply[2]
+
     if expect_custom_oled:
         if line1 != "HENRY'S RANE68" or line2 != "OLED VERIFIED!":
             print(f"  ✗ [Unicorn] Unerwarteter OLED-Inhalt: {line1!r} / {line2!r}")
@@ -577,8 +797,45 @@ def verify_in_unicorn_emulator(fw_bytes: bytes, expect_custom_oled: bool) -> boo
             f'  ✓ [Unicorn] Custom-OLED-Test bestanden: 0x7D="{line1}" / "{line2}" '
             f'-> 0x7C Revert="{revert1.strip()}" / "{revert2.strip()}"'
         )
+
+        # 3. Verifiziere Channel Filter Modes (SysEx 0x06) für PGM 1..4
+        for ch, mode in [(0, 0), (1, 1), (2, 2), (3, 3)]:
+            send_sysex(bytes([0xF0, 0x17, 0x06, (ch << 4) | mode, 0xF7]))
+            mu.reg_write(UC_ARM_REG_R0, 0)
+            mu.reg_write(UC_ARM_REG_R1, 0)
+            mu.reg_write(UC_ARM_REG_R2, 0x41 + ch)
+            mu.reg_write(UC_ARM_REG_R3, 96)  # Poti auf 2:30 Uhr (96)
+            mu.reg_write(UC_ARM_REG_SP, 0x40007F00)
+            mu.reg_write(UC_ARM_REG_LR, 0x00008000)
+            mu.emu_start(pot_disp_fn, 0x00008000, timeout=0, count=100000)
+
+        dsp_vals = [struct.unpack("<I", mu.mem_read(0x400018A8 + i * 4, 4))[0] for i in range(4)]
+        if dsp_vals != [96, 48, 112, 64]:
+            print(f"  ✗ [Unicorn] Filter-Mode-Test fehlgeschlagen: DSP={dsp_vals} (erwartet [96, 48, 112, 64])")
+            return False
+        print(
+            f"  ✓ [Unicorn] Channel-Filter-Modes (SysEx 0x06) verifiziert: "
+            f"PGM1(Normal)={dsp_vals[0]}, PGM2(LP-270°)={dsp_vals[1]}, "
+            f"PGM3(HP-270°)={dsp_vals[2]}, PGM4(Filter-Aus/MIDI)={dsp_vals[3]}"
+        )
+
+        # 4. Verifiziere Custom Firmware Version v2.00 (ARM7 Opcode 0x01 & USB bcdDevice 0x0200)
+        if (arm_major, arm_minor) != (2, 0) or bcd_a != 0x0200 or bcd_b != 0x0200:
+            print(
+                f"  ✗ [Unicorn] Versions-Prüfung fehlgeschlagen: ARM={arm_major}.{arm_minor:02X}, "
+                f"bcdDevice=0x{bcd_a:04X}/0x{bcd_b:04X}"
+            )
+            return False
+        print(
+            f"  ✓ [Unicorn] Custom-Firmware-Version verifiziert: "
+            f"v{arm_major}.{arm_minor:02X} Custom (ARM7 Opcode 0x01 = {arm_major}.{arm_minor:02X}, "
+            f"USB Port A/B bcdDevice = 0x{bcd_a:04X})"
+        )
     else:
-        print(f'  ✓ [Unicorn] Original-Firmware-Test bestanden: Standard-Anzeige="{line1.strip()}" / "{line2.strip()}"')
+        print(
+            f'  ✓ [Unicorn] Original-Firmware-Test bestanden: Standard-Anzeige="{line1.strip()}" / "{line2.strip()}", '
+            f"Version=v{arm_major}.{arm_minor:02X} (bcdDevice=0x{bcd_a:04X})"
+        )
     return True
 
 
@@ -808,8 +1065,10 @@ def main() -> int:
     repo_default_patched.write_bytes(patched_fw)
 
     patched_sha256 = hashlib.sha256(patched_fw).hexdigest()
-    print(f"  ✓ OLED-Patch erfolgreich angewendet & alle 3 CRC32-Ebenen neu berechnet:")
+    print(f"  ✓ Custom-Patch (OLED + Filter-Modi + v2.00 Custom) angewendet & alle CRCs neu berechnet:")
+    print(f"    - Neue Firmware-Version                : v2.00 Custom (ARM Opcode 0x01 = 2.00, USB bcdDevice = 0x0200)")
     print(f"    - Section 2 (0x08000 ARM Main App) CRC : 0x{crc_info['old_sec2_crc']:08X} -> 0x{crc_info['new_sec2_crc']:08X}")
+    print(f"    - Section 6 (0x7A000 Cypress FX2)  CRC : 0x{crc_info['old_sec6_crc']:08X} -> 0x{crc_info['new_sec6_crc']:08X}")
     print(f"    - Section 0 (0x04000 Section Table) CRC: 0x{crc_info['old_sec0_crc']:08X} -> 0x{crc_info['new_sec0_crc']:08X}")
     print(f"    - Header Payload (0x003C)           CRC: 0x{crc_info['old_hdr_crc']:08X} -> 0x{crc_info['new_hdr_crc']:08X}")
     print(f"    - SHA-256 (Gepatcht)                   : {patched_sha256}")

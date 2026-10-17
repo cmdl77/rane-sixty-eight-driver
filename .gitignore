@@ -27,4 +27,5 @@ firmware_extracted/
 *.dmg
 *.pkg
 *.zip
-
+# Third party source checkouts
+third_party/

@@ -168,6 +168,8 @@ class UnicornRaneHardwareSimulator:
             elif cmd == 51:  # Copy RAM to Flash (dst=p0, src=p1, len=p2)
                 data = bytes(uc.mem_read(p1, p2))
                 uc.mem_write(p0, data)
+                if hasattr(uc, "ctl_remove_cache"):
+                    uc.ctl_remove_cache(p0, p0 + p2)
                 uc.mem_write(r1, struct.pack("<I", 0))
             elif cmd == 52:  # Erase sector(s) p0..p1
                 if p0 == 4:

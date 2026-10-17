@@ -10,6 +10,7 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
         static var mappingTableView: NSTableView?
         static var filterTableView: NSTableView?
         static var tableModeSegment: NSSegmentedControl?
+        static var controllerDevicePopup: NSPopUpButton?
         static var isOutTableActive: Bool = false
 
         static var filterTypePopup: NSPopUpButton?
@@ -18,49 +19,55 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
         static var filterLabelField: NSTextField?
 
         static var mappingRows: [FlexFxMidiTarget] = [
-            .modulePower,
-            .fxToggle,
+            // ── 3-Bus Parallel Matrix Controls ──
+            .usbRecordKnob,
+            .fx1PreGain,
+            .fx2PreGain,
+            .dryPreGain,
+            .vst1Toggle,
+            .vst2Toggle,
+            .fx1PostGain,
+            .fx2PostGain,
+            .dryPostGain,
+            .usbPlaybackKnob,
+            // ── Master Tempo, Link & Module ──
+            .tempo,
             .abletonLink,
-            .inputGain,
-            .inputSelect,
-            .inputFlexFx,
+            .modulePower,
+            .prePost,
+            // ── Direct Stereo Input Pair Selectors (Ch 1–12) ──
             .inputPgm1,
             .inputPgm2,
             .inputPgm3,
             .inputPgm4,
+            .inputFlexFx,
             .inputMainMix,
-            .fxFilter,
-            .fxFlanger,
-            .fxPhaser,
-            .fxEcho,
-            .fxDubDelay,
-            .fxReverb,
-            .prevBeat,
-            .nextBeat,
-            .dryWet,
-            .depth,
-            .tempo,
-            .prePost
+            // ── Direct Stereo Output Pair Selectors (Ch 1–10) ──
+            .outputPgm1,
+            .outputPgm2,
+            .outputPgm3,
+            .outputPgm4,
+            .outputFlexFx
         ]
 
         // Out mapping rows: Targets that have status / LED indicators
         static var outMappingRows: [FlexFxMidiTarget] = [
-            .modulePower,
-            .fxToggle,
+            .vst1Toggle,
+            .vst2Toggle,
             .abletonLink,
-            .inputFlexFx,
+            .modulePower,
+            .prePost,
             .inputPgm1,
             .inputPgm2,
             .inputPgm3,
             .inputPgm4,
+            .inputFlexFx,
             .inputMainMix,
-            .fxFilter,
-            .fxFlanger,
-            .fxPhaser,
-            .fxEcho,
-            .fxDubDelay,
-            .fxReverb,
-            .prePost
+            .outputPgm1,
+            .outputPgm2,
+            .outputPgm3,
+            .outputPgm4,
+            .outputFlexFx
         ]
     }
 
@@ -107,6 +114,21 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
         modeSegment.font = NSFont.systemFont(ofSize: 11, weight: .bold)
         sec1TopBar.addArrangedSubview(modeSegment)
         ControllerManagerRefs.tableModeSegment = modeSegment
+
+        // Controller MIDI Input Device Selector
+        let devLabel = NSTextField(labelWithString: "MIDI-In:")
+        devLabel.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
+        devLabel.textColor = NSColor(white: 0.72, alpha: 1.0)
+        sec1TopBar.addArrangedSubview(devLabel)
+
+        let devPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+        devPopup.controlSize = .small
+        devPopup.font = NSFont.systemFont(ofSize: 10, weight: .medium)
+        devPopup.target = self
+        devPopup.action = #selector(onControllerMidiDeviceSelected(_:))
+        rebuildControllerDeviceMenu(for: devPopup)
+        sec1TopBar.addArrangedSubview(devPopup)
+        ControllerManagerRefs.controllerDevicePopup = devPopup
 
         let spacer1 = NSView()
         spacer1.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -507,6 +529,43 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
             col6.width = 70
             tableView.addTableColumn(col6)
         }
+    }
+
+    func rebuildControllerDeviceMenu(for popup: NSPopUpButton) {
+        popup.removeAllItems()
+        let currentSourceId = RaneMidiLearnService.shared.controllerMidiSourceId
+
+        let omniItem = NSMenuItem(title: "Alle Controller (Omni)", action: nil, keyEquivalent: "")
+        omniItem.representedObject = "OMNI"
+        popup.menu?.addItem(omniItem)
+
+        let devices = RaneMidiService.shared.availableInputDevices
+        if !devices.isEmpty {
+            popup.menu?.addItem(NSMenuItem.separator())
+            for dev in devices {
+                let item = NSMenuItem(title: "🎛 \(dev.displayName)", action: nil, keyEquivalent: "")
+                item.representedObject = dev.id
+                popup.menu?.addItem(item)
+            }
+        }
+
+        if currentSourceId != "OMNI" && !popup.itemArray.contains(where: { ($0.representedObject as? String) == currentSourceId }) {
+            let item = NSMenuItem(title: "🎛 \(currentSourceId) (Offline)", action: nil, keyEquivalent: "")
+            item.representedObject = currentSourceId
+            popup.menu?.addItem(item)
+        }
+
+        if let idx = popup.itemArray.firstIndex(where: { ($0.representedObject as? String) == currentSourceId }) {
+            popup.selectItem(at: idx)
+        } else {
+            popup.selectItem(at: 0)
+        }
+    }
+
+    @objc func onControllerMidiDeviceSelected(_ sender: NSPopUpButton) {
+        guard let sourceId = sender.selectedItem?.representedObject as? String else { return }
+        RaneMidiLearnService.shared.controllerMidiSourceId = sourceId
+        appendMidiLog("Controller Manager MIDI-Eingang gewählt: [\(sender.selectedItem?.title ?? sourceId)]")
     }
 
     @objc func onTableModeChanged(_ sender: NSSegmentedControl) {

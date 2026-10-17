@@ -42,6 +42,8 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
     // PGM 1-4 Controls (Tab 2)
     var channels: [PgmChannelControls] = []
+    var pgmFirmwareFeatureBadge: NSTextField?
+    var isCustomFirmwareDetected: Bool = false
 
     // MIDI Settings (Tab 3)
     var midiOutPopup: NSPopUpButton!
@@ -165,6 +167,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
         let pgmSensIndices = channels.map { $0.phonoPopup.indexOfSelectedItem }
         let pgmResIndices = channels.map { $0.resonanceSegment.selectedSegment }
+        let pgmFilterModes = channels.map { $0.filterModePopup.indexOfSelectedItem }
         let pgmRecIndices = channels.map { $0.recordSegment.selectedSegment }
         let pgmXfaderBadges = channels.map { ($0.crossfaderBadge.stringValue, $0.crossfaderBadge.textColor, $0.crossfaderBadge.layer?.backgroundColor) }
         let pgmInputTypeBadges = channels.map { ($0.inputTypeBadge.stringValue, $0.inputTypeBadge.textColor, $0.inputTypeBadge.layer?.backgroundColor) }
@@ -212,6 +215,9 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             }
             if i < pgmResIndices.count {
                 ch.resonanceSegment.selectedSegment = pgmResIndices[i]
+            }
+            if i < pgmFilterModes.count && pgmFilterModes[i] < ch.filterModePopup.numberOfItems {
+                ch.filterModePopup.selectItem(at: pgmFilterModes[i])
             }
             if i < pgmRecIndices.count {
                 ch.recordSegment.selectedSegment = pgmRecIndices[i]

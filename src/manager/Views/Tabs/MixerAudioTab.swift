@@ -56,8 +56,9 @@ extension MainWindowController {
 
         // Row 2: LCD Contrast Slider
         let initLcdPct = Int(round(Double(savedLcd) / 127.0 * 100.0))
-        lcdContrastSlider = NSSlider(value: Double(savedLcd), minValue: 0, maxValue: 127, target: self, action: #selector(onLcdContrastChanged))
+        lcdContrastSlider = RaneResettableSlider(value: Double(savedLcd), minValue: 0, maxValue: 127, defaultValue: 64.0, target: self, action: #selector(onLcdContrastChanged))
         lcdContrastSlider.isContinuous = true
+        lcdContrastSlider.toolTip = "Doppelklick: Nullstellung (50%)"
         lcdContrastBadge = createValueBadge(text: "\(initLcdPct)%")
         lastLcdVal = UInt8(clamping: savedLcd)
         let rowLcd = createSliderRow(
@@ -78,8 +79,9 @@ extension MainWindowController {
 
         // Row 3: Phones Tone Low Slider
         let initLowDb = (Double(savedLow) - 64.0) / 64.0 * 6.0
-        lowToneSlider = NSSlider(value: Double(savedLow), minValue: 0, maxValue: 127, target: self, action: #selector(onLowToneChanged))
+        lowToneSlider = RaneResettableSlider(value: Double(savedLow), minValue: 0, maxValue: 127, defaultValue: 64.0, target: self, action: #selector(onLowToneChanged))
         lowToneSlider.isContinuous = true
+        lowToneSlider.toolTip = "Doppelklick: Nullstellung (0.0 dB)"
         lowToneBadge = createValueBadge(text: String(format: "%+.1f dB", initLowDb))
         lastLowVal = UInt8(clamping: savedLow)
         let rowLow = createSliderRow(
@@ -100,8 +102,9 @@ extension MainWindowController {
 
         // Row 4: Phones Tone High Slider
         let initHighDb = (Double(savedHigh) - 64.0) / 64.0 * 6.0
-        highToneSlider = NSSlider(value: Double(savedHigh), minValue: 0, maxValue: 127, target: self, action: #selector(onHighToneChanged))
+        highToneSlider = RaneResettableSlider(value: Double(savedHigh), minValue: 0, maxValue: 127, defaultValue: 64.0, target: self, action: #selector(onHighToneChanged))
         highToneSlider.isContinuous = true
+        highToneSlider.toolTip = "Doppelklick: Nullstellung (0.0 dB)"
         highToneBadge = createValueBadge(text: String(format: "%+.1f dB", initHighDb))
         lastHighVal = UInt8(clamping: savedHigh)
         let rowHigh = createSliderRow(
@@ -332,6 +335,11 @@ extension MainWindowController {
         sendUserCC(cc: 37, value: lcdVal)
         sendUserCC(cc: 36, value: blVal)
         sendUserCC(cc: 33, value: usb6Val)
+
+        for ch in 1...4 {
+            let savedMode = UserDefaults.standard.integer(forKey: "RaneSixtyEight_FilterMode_PGM\(ch)")
+            RaneMidiService.shared.sendChannelFilterMode(channel: ch, mode: savedMode)
+        }
     }
 
     @objc func onBufferSizePopupChanged() {
