@@ -92,13 +92,11 @@ Jeder Kanalzug verfügt über genau einen dedizierten, latenzfreien VST-Slot:
 * **Kanal 1–4 (PGM 1..4):** Schaltet den VST-Effekt direkt als Kanal-Insert auf Deck 1 bis Deck 4.
 * **Kanal 5 (FlexFX Return):** Verarbeitet das Return-Signal des analogen FlexFX-Hardware-Send-Busses des Mixers.
 
-### VST-Plugin laden und Editor öffnen
+### VST-Plugin laden und steuern
 1. Klicken Sie auf den gewünschten Kanalreiter (z. B. `PGM 1 (Deck 1)`).
-2. Wählen Sie im Dropdown-Menü das gewünschte VST2-Plugin aus (z. B. *ValhallaDelay*, *FabFilter Timeless*, *TAL-Dub-X*).
+2. Wählen Sie im Dropdown-Menü das gewünschte VST2-Plugin aus.
    * *Tipp:* Mit dem Button **„🔄 VST scannen“** können Sie neu installierte Plugins in `/Library/Audio/Plug-Ins/VST/` jederzeit neu einlesen.
-3. Klicken Sie auf **„🎛 Editor“**, um das Original-Plugin-Interface zu öffnen:
-
-![VST Editor](screenshots/tab3_vst_editor.png)
+3. Über den Button **„🎛 Editor“** lässt sich bei Bedarf das native Plugin-Bedienfenster öffnen.
 
 ### Signalfluss, Pegel & VST-Ducking
 * **Pre-Gain & Post-Gain:** Regeln den Eingangspegel in den Effekt und den Ausgangspegel zurück in den Kanal.

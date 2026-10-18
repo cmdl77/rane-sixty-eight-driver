@@ -25,16 +25,13 @@ A modern, high-performance, **100% User-Space CoreAudio HAL Driver** and **MIDI 
 | :---: | :---: |
 | [![Mixer Audio](docs/screenshots/tab1_mixer_audio.png)](docs/USER_GUIDE.md#2-tab-1-🎛-mixer-audio--globale-einstellungen) | [![PGM Channels](docs/screenshots/tab2_pgm_channels.png)](docs/USER_GUIDE.md#3-tab-2-🎚-pgm-kanäle-1–4-preamp--phono-setup) |
 
-| ⚡️ FlexFX VST-Host & Ableton Link | 🎛 VST2 GUI-Editor (FabFilter / Valhalla) |
+| ⚡️ FlexFX VST-Host & Ableton Link | 🎹 Controller & Live MIDI-Monitor |
 | :---: | :---: |
-| [![FlexFX Engine](docs/screenshots/tab3_flexfx_engine.png)](docs/USER_GUIDE.md#4-tab-3-⚡️-flexfx-engine-vst-plugins--ableton-link) | [![VST Editor](docs/screenshots/tab3_vst_editor.png)](docs/USER_GUIDE.md#vst-plugin-laden-und-editor-öffnen) |
+| [![FlexFX Engine](docs/screenshots/tab3_flexfx_engine.png)](docs/USER_GUIDE.md#4-tab-3-⚡️-flexfx-engine-vst-plugins--ableton-link) | [![Live MIDI](docs/screenshots/tab4_controller_midi.png)](docs/USER_GUIDE.md#5-tab-4-🎹-controller--live-midi-monitor) |
 
-| 🎹 Controller & Live MIDI-Monitor | ⚙️ System Status & Hardware-Diagnose |
+| ⚙️ System Status & Hardware-Diagnose | 🎛 Mini-HUD Modus (Floating Live-Overlay) |
 | :---: | :---: |
-| [![Live MIDI](docs/screenshots/tab4_controller_midi.png)](docs/USER_GUIDE.md#5-tab-4-🎹-controller--live-midi-monitor) | [![System Status](docs/screenshots/tab5_system_status.png)](docs/USER_GUIDE.md#6-tab-5-⚙️-system-status-cpu--hardware-diagnose) |
-
-### 🎛 Mini-HUD Modus (Floating Live-Overlay für DJ-Decks)
-[![Mini HUD](docs/screenshots/mini_hud.png)](docs/USER_GUIDE.md#7-mini-hud-modus-floating-live-overlay)
+| [![System Status](docs/screenshots/tab5_system_status.png)](docs/USER_GUIDE.md#6-tab-5-⚙️-system-status-cpu--hardware-diagnose) | [![Mini HUD](docs/screenshots/mini_hud.png)](docs/USER_GUIDE.md#7-mini-hud-modus-floating-live-overlay) |
 
 ---
 
