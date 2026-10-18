@@ -15,17 +15,26 @@ A modern, high-performance, **100% User-Space CoreAudio HAL Driver** and **MIDI 
 > [!NOTE]
 > **Zero Kernel Extensions (Kexts) required!** Runs completely in user-space inside macOS `coreaudiod`. No need to disable System Integrity Protection (SIP) or lower system security on Apple Silicon.
 
+📖 **[Ausführliches Benutzerhandbuch & Dokumentation (User Guide)](docs/USER_GUIDE.md)** mit Schritt-für-Schritt-Anleitungen für alle Tabs, VST2-Effekte, Ableton Link und DJ-Software-Einrichtung (Traktor / Serato / Ableton).
+
 ---
 
-## 📸 Screenshots
+## 📸 Screenshots & Interface-Übersicht
 
-| 🎛 Mixer Audio & Buffer Latency | 🎚 PGM Channels 1–4 Routing |
+| 🎛 Mixer Audio & CoreAudio Latenz | 🎚 PGM Kanäle 1–4 Preamp & Resonanz |
 | :---: | :---: |
-| ![Mixer Audio](docs/screenshots/tab1_mixer_audio.png) | ![PGM Channels](docs/screenshots/tab2_pgm_channels.png) |
+| [![Mixer Audio](docs/screenshots/tab1_mixer_audio.png)](docs/USER_GUIDE.md#2-tab-1-🎛-mixer-audio--globale-einstellungen) | [![PGM Channels](docs/screenshots/tab2_pgm_channels.png)](docs/USER_GUIDE.md#3-tab-2-🎚-pgm-kanäle-1–4-preamp--phono-setup) |
 
-| 🎹 Live MIDI Monitor & Channel Setup | ⚙️ System Status & Hardware LED Check |
+| ⚡️ FlexFX VST-Host & Ableton Link | 🎛 VST2 GUI-Editor (FabFilter / Valhalla) |
 | :---: | :---: |
-| ![Live MIDI](docs/screenshots/tab3_live_midi.png) | ![System Status](docs/screenshots/tab4_system_status.png) |
+| [![FlexFX Engine](docs/screenshots/tab3_flexfx_engine.png)](docs/USER_GUIDE.md#4-tab-3-⚡️-flexfx-engine-vst-plugins--ableton-link) | [![VST Editor](docs/screenshots/tab3_vst_editor.png)](docs/USER_GUIDE.md#vst-plugin-laden-und-editor-öffnen) |
+
+| 🎹 Controller & Live MIDI-Monitor | ⚙️ System Status & Hardware-Diagnose |
+| :---: | :---: |
+| [![Live MIDI](docs/screenshots/tab4_controller_midi.png)](docs/USER_GUIDE.md#5-tab-4-🎹-controller--live-midi-monitor) | [![System Status](docs/screenshots/tab5_system_status.png)](docs/USER_GUIDE.md#6-tab-5-⚙️-system-status-cpu--hardware-diagnose) |
+
+### 🎛 Mini-HUD Modus (Floating Live-Overlay für DJ-Decks)
+[![Mini HUD](docs/screenshots/mini_hud.png)](docs/USER_GUIDE.md#7-mini-hud-modus-floating-live-overlay)
 
 ---
 
