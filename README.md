@@ -4,9 +4,9 @@
 
 # 🎧 Rane Sixty-Eight macOS Driver (Apple Silicon M1–M4 & Intel)
 
-[![macOS](https://img.shields.io/badge/macOS-Sonoma%20%7C%20Sequoia%20(15)-black.svg?style=flat&logo=apple)](https://github.com/cmdl77/rane-sixty-eight-driver)
-[![Architecture](https://img.shields.io/badge/Arch-Apple%20Silicon%20(M1--M4)%20%7C%20Intel-blue.svg)](https://github.com/cmdl77/rane-sixty-eight-driver)
-[![Driver](https://img.shields.io/badge/Type-100%25%20User--Space%20CoreAudio%20HAL-green.svg)](https://github.com/cmdl77/rane-sixty-eight-driver)
+[![macOS](https://img.shields.io/badge/macOS-Sonoma%20%7C%20Sequoia%20(15)-black.svg?style=flat&logo=apple)](https://github.com/cmdl77/openrane-sixty-eight)
+[![Architecture](https://img.shields.io/badge/Arch-Apple%20Silicon%20(M1--M4)%20%7C%20Intel-blue.svg)](https://github.com/cmdl77/openrane-sixty-eight)
+[![Driver](https://img.shields.io/badge/Type-100%25%20User--Space%20CoreAudio%20HAL-green.svg)](https://github.com/cmdl77/openrane-sixty-eight)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-orange.svg?logo=buy-me-a-coffee)](https://buymeacoffee.com/cmdl77)
 
@@ -44,7 +44,7 @@ flowchart LR
 ```
 
 ### Step 1: Download Release
-Download the pre-compiled **`Rane-Sixty-Eight-macOS-Driver.zip`** from the [Releases](https://github.com/cmdl77/rane-sixty-eight-driver/releases) section and extract it.
+Download the pre-compiled **`Rane-Sixty-Eight-macOS-Driver.zip`** from the [Releases](https://github.com/cmdl77/openrane-sixty-eight/releases) section and extract it.
 
 ### Step 2: One-Click Installation
 Double-click **`Install.command`** in the extracted folder. 
@@ -117,8 +117,8 @@ Um eigene Texte (Start-Begrüßung & Ableton Link Status) auf dem physischen OLE
 For developers who wish to compile the driver themselves:
 
 ```bash
-git clone https://github.com/cmdl77/rane-sixty-eight-driver.git
-cd rane-sixty-eight-driver
+git clone https://github.com/cmdl77/openrane-sixty-eight.git
+cd openrane-sixty-eight
 ./build.sh
 ```
 
