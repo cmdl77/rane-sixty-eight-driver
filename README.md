@@ -84,16 +84,21 @@ If macOS shows an alert stating *"Developer cannot be verified"*:
 - **Zweisprachig (Deutsch & Englisch):** Vollständige Lokalisierung aller Tabs, Tooltips und Systemmenüs inklusive Versionsanzeige `v2.0.0`.
 - **Native Apple Silicon (M1–M4) & Intel:** Kompiliert als Universal 2 Binary für maximale Effizienz und minimale Latenz ohne Rosetta 2.
 - **Integrierte Hardware-Diagnose:** LED-Chaser-Lichtcheck und Stresstest direkt im Control Panel.
+- **Exklusive Hardware-Filter-Modi (PGM 1–4, Custom Firmware v2.00):** Schaltet das Verhalten des physischen DSP-Filter-Drehreglers pro Kanalzug im laufenden Betrieb flexibel um:
+  - **Normal (LP+HP):** Klassischer Dual-Filter (12-Uhr Neutral, Links LPF, Rechts HPF).
+  - **Nur Low-Pass (270°):** Voller 270°-Drehbereich ausschließlich für Low-Pass-Cuts mit **doppelter Regelpräzision** (Rechtsanschlag = Offen, Links = LPF bis 0 Hz).
+  - **Nur High-Pass (270°):** Voller 270°-Drehbereich ausschließlich für High-Pass-Sweeps mit **doppelter Regelpräzision** (Linksanschlag = Offen, Rechts = HPF bis 20 kHz).
+  - **Filter Aus (Reiner MIDI-Controller):** Hardware-DSP bleibt fest auf Neutral (Bypass) verriegelt; der Drehregler sendet freie 0..127 USB-MIDI-Werte an Traktor/Serato/Ableton, ohne das Mixer-Audio zu verzerren!
 - **Custom Hardware-OLED-Display & Firmware-Patcher (NEU):**
   - **5 Sekunden Begrüßungstext beim App-Start & Preset-Laden:** Frei konfigurierbarer 2×14-Zeichen-Begrüßungstext im Tab *System Status* (wird auch in den Mixer-Presets gespeichert), der beim Starten der App für 5 Sekunden auf dem physischen Rane Sixty-Eight OLED-Display erscheint und danach automatisch zur originalen `BPM:` / `TIME:`-Anzeige zurückkehrt.
   - **2 Sekunden Ableton Link Status-Toast auf dem Mixer-Display:** Zeigt beim Umschalten von Ableton Link für 2 Sekunden `"AbletonLink on"` bzw. `"AbletonLinkoff"` in Zeile 2 des Hardware-OLEDs an.
-  - **Vollautomatischer Firmware-Extractor, OLED-Patcher & USB-Flasher (`./patch_and_flash_firmware.sh`):** Extrahiert und entschlüsselt die originale Firmware direkt aus dem offiziellen Serato Scratch Live 2.5 Download (`Serato Scratch Live 2.5 Mac.zip`) oder `SIXTY-EIGHT.pkg`, patcht das Image, verifiziert alle 7 Sektions-CRCs im lokalen ARM7TDMI-Emulator (`Unicorn`) und lässt den Nutzer mit mehrstufigen Sicherheitsabfragen zwischen **Original-Firmware** und **Gepatchter OLED-Firmware** wählen.
+  - **Vollautomatischer Firmware-Extractor, Patcher & USB-Flasher (`./patch_and_flash_firmware.sh`):** Extrahiert und entschlüsselt die originale Firmware direkt aus dem offiziellen Serato Scratch Live 2.5 Download (`Serato Scratch Live 2.5 Mac.zip`) oder `SIXTY-EIGHT.pkg`, schaltet die **4 Filter-Modi** und **Custom-OLED-Funktionen** frei, verifiziert alle 7 Sektions-CRCs im lokalen ARM7TDMI-Emulator (`Unicorn`) und lässt den Nutzer mit mehrstufigen Sicherheitsabfragen zwischen **Original-Firmware** und **Gepatchter v2.00-Firmware** wählen.
 
 ---
 
-## 📺 Custom OLED Firmware Patcher & Hardware Flasher
+## 📺 Custom Firmware v2.00 Patcher & Hardware Flasher
 
-Um eigene Texte (Start-Begrüßung & Ableton Link Status) auf dem physischen OLED-Display des Rane Sixty-Eight freizuschalten, enthält dieses Repository ein komplettes Patch- und Flash-Skript mit automatischer Abhängigkeitsprüfung und Sicherheitsabfragen:
+Um die **4 Hardware-Filter-Modi pro Kanal** und **eigene OLED-Texte** auf dem Rane Sixty-Eight freizuschalten, enthält dieses Repository ein schlüsselfertiges Patch- und Flash-Skript mit automatischer Abhängigkeitsprüfung und Sicherheitsabfragen:
 
 1. **Offizielles Archiv herunterladen (kostenloser Serato-Account erforderlich):**
    Lade **`Serato Scratch Live 2.5 Mac.zip`** von der offiziellen Serato-Seite herunter:
@@ -105,10 +110,11 @@ Um eigene Texte (Start-Begrüßung & Ableton Link Status) auf dem physischen OLE
 3. **Funktionen des Skripts:**
    - Prüft automatisch benötigte Tools (`python3`, `unzip`, `hdiutil`, `pkgutil`, Xcode Command Line Tools, `unicorn`, `capstone`) und installiert fehlende Pakete nach Rückfrage.
    - Extrahiert und entschlüsselt die originale Rane-Firmware (`v1.1E` aus Serato Scratch Live 2.5 bzw. `v1.28` aus `SIXTY-EIGHT.pkg`).
-   - Erstellt die gepatchte Custom-OLED-Firmware und prüft beide Versionen vorab im lokalen **ARM7TDMI Unicorn-Emulator** gegen den originalen Hardware-Bootloader.
-   - Bietet die Wahl zwischen **[1] Gepatchte OLED-Firmware flashen**, **[2] Originale Werks-Firmware flashen (Rollback)** und **[3] Nur Extrahieren & im Simulator testen**.
+   - Patcht die **ARM7TDMI-Firmware (Section 2)** mit den 4 Filter-Modi (SysEx Opcode `0x06`) und OLED-Steuerung (`0x7D` / `0x01` / `0x02` / `0x7C`), aktualisiert den USB-Deskriptor auf `bcdDevice = 0x0200` (v2.00 Custom) und berechnet alle Sektions-CRCs bitgenau neu.
+   - Validiert das fertige Image vorab im lokalen **ARM7TDMI Unicorn-Emulator** gegen den echten Hardware-Bootloader.
+   - Bietet die Wahl zwischen **[1] Gepatchte v2.00-Firmware flashen**, **[2] Originale Werks-Firmware flashen (Rollback)** und **[3] Nur Extrahieren & im Simulator testen**.
 
-📖 **Ausführliche Dokumentation & technische Details zum OLED-Patch:** [**docs/FIRMWARE_PATCH_AND_FLASH.md**](docs/FIRMWARE_PATCH_AND_FLASH.md)
+📖 **Ausführliche Dokumentation & technische Details zum Firmware-Patch:** [**docs/FIRMWARE_PATCH_AND_FLASH.md**](docs/FIRMWARE_PATCH_AND_FLASH.md)
 
 ---
 

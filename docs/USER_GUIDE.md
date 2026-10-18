@@ -81,6 +81,23 @@ Konfiguration der Vorverstärker für Plattenspieler (Phono) und CD/Line-Zuspiel
 
 ---
 
+### 🎛 Exklusive Hardware-Filter-Modi (PGM 1–4) – Custom Firmware v2.00
+
+In der originalen Werks-Firmware ist der physische Filter-Drehregler jedes Kanalzugs fest an einen kombinierten Dual-Filter gebunden (Links = Low-Pass, 12 Uhr = Neutral, Rechts = High-Pass).  
+Mit der **Custom-Firmware v2.00** können Sie das Verhalten des Hardware-DSP-Filters für jeden der 4 Kanalzüge im laufenden Betrieb über das Dropdown **„Filter-Modus (Poti)“** individuell umschalten:
+
+| Modus | Name | Verhalten des physischen Kanal-Filter-Drehreglers | Anwendungsbereich im DJ-Set |
+| :---: | :--- | :--- | :--- |
+| **0** | **Normal (LP + HP)** | Originaler kombinierter Dual-Filter: 12-Uhr-Mittelrastung ist Neutral (Bypass), nach links Low-Pass (0..63), nach rechts High-Pass (65..127). | Klassisches Allround-Club-Mixing. |
+| **1** | **Nur Low-Pass (270°)** | Der **gesamte 270°-Drehbereich** regelt ausschließlich den Low-Pass-Filter mit **doppelter Präzision** (Rechtsanschlag = Neutral/Offen, Linksanschlag = maximaler LPF bis 0 Hz). | Feinfühlige Bass-Cuts und butterweiche Übergänge ohne Gefahr, versehentlich in den High-Pass zu rutschen. |
+| **2** | **Nur High-Pass (270°)** | Der **gesamte 270°-Drehbereich** regelt ausschließlich den High-Pass-Filter mit **doppelter Präzision** (Linksanschlag = Neutral/Offen, Rechtsanschlag = maximaler HPF bis 20 kHz). | Dramatische Buildups und Sweeps mit maximaler dynamischer Auflösung über den gesamten Drehweg. |
+| **3** | **Filter Aus (Reiner MIDI-Controller)** | Der Hardware-DSP-Filter wird fest auf **Neutral (64 / Bypass)** verriegelt. Der physische Drehregler sendet weiterhin volle 0..127 USB-MIDI-Werte an den Mac. | **Effekt-Mapping in Traktor / Serato / Ableton:** Mappen Sie den Regler auf Software-Effekte (Delays, Glitch, Beatmasher), ohne das analoge/digitale Mixer-Audio auf der Hardware zu filtern! |
+
+> [!TIP]
+> **Echtzeit-Umschaltung:** Das Control Panel überträgt den Modus per MIDI-SysEx (Opcode `0x06`) ohne Audio-Unterbrechung an den Mixer. Die gewählten Modi werden in den Einstellungen gespeichert und beim nächsten Start automatisch wiederhergestellt.
+
+---
+
 ## 4. Tab 3: ⚡️ FlexFX Engine, VST-Plugins & Ableton Link
 
 Das Herzstück für moderne DJ-Sets: Binden Sie beliebige Studio-Effekte (Delays, Reverbs, Filter) direkt in die Kanalzüge ein und synchronisieren Sie diese über das Ableton Link Protokoll.
