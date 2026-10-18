@@ -155,7 +155,7 @@ Wenn Sie während des Auflegens mit Traktor Pro, Serato DJ oder Ableton Live den
 * **Features im Mini-HUD:**
   * Live BPM-Anzeige & Takt-Punkte.
   * Ableton Link Verbindungsstatus.
-  * 1-Klick-Effekt-Schalter (An / Aus) und Vor/Nachher-Routing (PRE / POST).
+ 
   * Mit **`⤢ FULL`** kehren Sie jederzeit sofort in das vollständige Control Panel zurück.
 
 ---
@@ -164,13 +164,13 @@ Wenn Sie während des Auflegens mit Traktor Pro, Serato DJ oder Ableton Live den
 
 ### Traktor Pro 3 / 4
 1. **Audio Device auswählen:** In *Preferences → Audio Setup* als Audio Device **„Rane Sixty-Eight“** wählen.
-2. **Puffergröße (Latency):** Auf **256 Samples** (oder 512 Samples) einstellen.
-3. **Output Routing:**
+
+2. **Output Routing:**
    * *Deck A:* Output 1 / 2 (PGM 1)
    * *Deck B:* Output 3 / 4 (PGM 2)
    * *Deck C:* Output 5 / 6 (PGM 3)
    * *Deck D:* Output 7 / 8 (PGM 4)
-4. **Flüssige Waveforms:** Falls die Waveform auf externen Bildschirmen ruckelt, stellen Sie in den macOS-Systemeinstellungen die Bildwiederholrate des Monitors auf **60 Hz** ein.
+3. **Flüssige Waveforms:** Falls die Waveform auf externen Bildschirmen ruckelt, stellen Sie in den macOS-Systemeinstellungen die Bildwiederholrate des Monitors auf **60 Hz** ein.
 
 ### Ableton Live
 1. In *Einstellungen → Audio* den **Rane Sixty-Eight** als Audio-Eingangs- und Ausgangsgerät festlegen.
