@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: MIT */
-/* RanePluginHostService.swift - Universal VST2 & VST3 Plugin Host Engine for Rane Sixty-Eight FlexFX Slots */
+/* RanePluginHostService.swift - Universal VST2 Plugin Host Engine for Rane Sixty-Eight Channel Strips & FlexFX */
 
 import Foundation
 import Cocoa
@@ -24,12 +24,11 @@ public struct PluginComponentInfo: Identifiable {
 
 public class PluginSlot {
     public let slotIndex: Int
-    public var defaultType: FlexFxType
 
     public var isCustomPlugin: Bool = false
-    public var pluginName: String = "Internal (DaisySP)"
+    public var pluginName: String = "Leer (Deaktiviert)"
     public var pluginId: String = ""
-    public var pluginFormat: PluginFormat = .vst3
+    public var pluginFormat: PluginFormat = .vst2
     public var vstPath: String? = nil
 
     // MIDI Routing Configuration per VST Slot
@@ -44,17 +43,15 @@ public class PluginSlot {
     public var vstEffect: UnsafeMutablePointer<AEffect>? = nil
     public var vstBundle: UnsafeMutableRawPointer? = nil
 
-    // VST3 Instance (OpaquePointer to RaneVst3Instance)
+    // VST3 Instance
     public var vst3Instance: OpaquePointer? = nil
 
     public var isLoaded: Bool = false
     public let maxFrames: Int = 8192
     public var windowController: NSWindowController? = nil
 
-    init(slotIndex: Int, defaultType: FlexFxType) {
+    init(slotIndex: Int) {
         self.slotIndex = slotIndex
-        self.defaultType = defaultType
-        self.pluginName = "Internal (\(defaultType.displayName))"
     }
 
     deinit {
@@ -63,28 +60,32 @@ public class PluginSlot {
 
     public func unloadPluginInstance() {
         isLoaded = false
+        isCustomPlugin = false
+        pluginName = "Leer (Deaktiviert)"
+        pluginId = ""
+        vstPath = nil
         windowController?.close()
         windowController = nil
 
-        if let vst3 = vst3Instance {
-            rane_vst3_close(vst3)
-            vst3Instance = nil
-        }
         if let vst = vstEffect {
             rane_vst_close(vst, vstBundle)
             vstEffect = nil
             vstBundle = nil
         }
+        if let vst3 = vst3Instance {
+            rane_vst3_close(vst3)
+            vst3Instance = nil
+        }
     }
 
-    // Send MIDI message (Note, CC, PitchBend, or 0xF8 MIDI Clock) to loaded VST2 or VST3 plugin
+    // Send MIDI message (Note, CC, PitchBend, or 0xF8 MIDI Clock) to loaded VST2/VST3 plugin
     public func sendMidiEvent(status: UInt8, d1: UInt8, d2: UInt8, deltaFrames: Int32 = 0) {
         guard isLoaded else { return }
 
-        if let vst3 = vst3Instance {
-            rane_vst3_send_midi(vst3, status, d1, d2, deltaFrames)
-        } else if let vst = vstEffect {
+        if let vst = vstEffect {
             rane_vst_send_midi(vst, status, d1, d2, deltaFrames)
+        } else if let vst3 = vst3Instance {
+            rane_vst3_send_midi(vst3, status, d1, d2, deltaFrames)
         }
 
         if status < 0xF8 {
@@ -99,7 +100,7 @@ public class PluginSlot {
         }
     }
 
-    // Real-Time Safe Audio Rendering (VST3 & VST2)
+    // Real-Time Safe Audio Rendering (VST2 / VST3)
     @inline(__always)
     func processAudio(inPtrL: UnsafePointer<Float>,
                       inPtrR: UnsafePointer<Float>,
@@ -110,18 +111,13 @@ public class PluginSlot {
                       sampleRate: Double = 48000.0) -> Bool {
         guard isLoaded, frames <= maxFrames else { return false }
 
-        // 1. VST3 Native DSP Processing (includes ProcessContext BPM/PPQ & 24 PPQN Clock + Parameter Changes + MIDI Events)
-        if let vst3 = vst3Instance {
-            rane_vst3_process(vst3, inPtrL, inPtrR, outPtrL, outPtrR, Int32(frames))
-            return true
-        }
-
-        // 2. VST2 Native DSP Processing (includes VstTimeInfo & 24 PPQN 0xF8 MIDI Clock via rane_vst_process)
         if let vst = vstEffect {
             rane_vst_process(vst, inPtrL, inPtrR, outPtrL, outPtrR, Int32(frames))
             return true
+        } else if let vst3 = vst3Instance {
+            rane_vst3_process(vst3, inPtrL, inPtrR, outPtrL, outPtrR, Int32(frames))
+            return true
         }
-
         return false
     }
 }
@@ -141,50 +137,44 @@ public class RanePluginHostService {
     private let midiClockPrefix = "RaneSixtyEight_PluginMidiClock_"
 
     private init() {
-        // Initialize FlexFX Slots (Slot 0 = VST Effekt 1 [default Echo], Slot 1 = VST Effekt 2 [default Reverb], plus 2..5)
-        let defaultTypes: [FlexFxType] = [.echo, .reverb, .phaser, .filter, .flanger, .dubDelay]
-        for (i, t) in defaultTypes.enumerated() {
-            slots.append(PluginSlot(slotIndex: i, defaultType: t))
+        // Initialize 5 dedicated VST2 slots (1 per channel: PGM 1, PGM 2, PGM 3, PGM 4, FlexFX)
+        for i in 0..<5 {
+            slots.append(PluginSlot(slotIndex: i))
         }
 
         rescanAvailablePlugins()
         restoreConfiguredSlots()
     }
 
-    // MARK: - Scan Installed VST2 (.vst) & VST3 (.vst3) Effects Only (No AudioUnits!)
+    // MARK: - Scan Installed Plugins (Strictly VST2 Only)
     public func rescanAvailablePlugins() {
-        var list: [PluginComponentInfo] = []
+        var vst2List: [PluginComponentInfo] = []
         let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
         let fm = FileManager.default
 
-        // 1. Scan VST3 Plug-in directories (/Library/Audio/Plug-Ins/VST3 and ~/Library/Audio/Plug-Ins/VST3)
-        let vst3Dirs = [
-            "/Library/Audio/Plug-Ins/VST3",
-            "\(homeDir)/Library/Audio/Plug-Ins/VST3"
-        ]
-        for baseDir in vst3Dirs {
-            scanPluginDirectory(baseDir: baseDir, ext: "vst3", format: .vst3, fm: fm, into: &list)
-        }
-
-        // 2. Scan VST2 Plug-in directories (/Library/Audio/Plug-Ins/VST and ~/Library/Audio/Plug-Ins/VST)
+        // Scan strictly VST2 Plug-in directories (/Library/Audio/Plug-Ins/VST and ~/Library/Audio/Plug-Ins/VST)
         let vst2Dirs = [
             "/Library/Audio/Plug-Ins/VST",
             "\(homeDir)/Library/Audio/Plug-Ins/VST"
         ]
         for baseDir in vst2Dirs {
-            scanPluginDirectory(baseDir: baseDir, ext: "vst", format: .vst2, fm: fm, into: &list)
+            scanPluginDirectory(baseDir: baseDir, ext: "vst", format: .vst2, fm: fm, into: &vst2List)
         }
 
-        // Sort alphabetically by plugin name (preferring VST3 first if names are identical)
-        list.sort {
-            let cmp = $0.name.localizedCaseInsensitiveCompare($1.name)
-            if cmp == .orderedSame {
-                return $0.format == .vst3 && $1.format == .vst2
-            }
-            return cmp == .orderedAscending
+        vst2List.sort {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
 
-        self.availablePlugins = list
+        self.availablePlugins = vst2List
+    }
+
+    private func normalizePluginName(_ name: String) -> String {
+        var s = name.lowercased()
+        let strips = ["vst3", "vst", "plugin", "fx", "(sc)"]
+        for word in strips {
+            s = s.replacingOccurrences(of: word, with: "")
+        }
+        return s.filter { $0.isLetter || $0.isNumber }
     }
 
     private func scanPluginDirectory(baseDir: String,
@@ -281,6 +271,15 @@ public class RanePluginHostService {
 
     // MARK: - Slot Configuration & Instantiation
     public func loadPlugin(slotIndex: Int, pluginInfo: PluginComponentInfo?, completion: ((Bool) -> Void)? = nil) {
+        // JUCE-based VST2 plugins (Valhalla etc.) bind their "message thread" to the thread that
+        // first instantiates them. Editor calls (effEditGetRect/Open) happen on the main thread,
+        // so instantiating off-main causes a cond-var deadlock. Always load on the main thread.
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.loadPlugin(slotIndex: slotIndex, pluginInfo: pluginInfo, completion: completion)
+            }
+            return
+        }
         guard slotIndex >= 0 && slotIndex < slots.count else {
             completion?(false)
             return
@@ -291,12 +290,8 @@ public class RanePluginHostService {
         // 1. Unload existing plugin if any
         slot.unloadPluginInstance()
 
-        // If pluginInfo is nil, user selected "Internal (DaisySP)"
+        // If pluginInfo is nil, user selected "Leer / Deaktiviert" (0% CPU)
         guard let info = pluginInfo else {
-            slot.isCustomPlugin = false
-            slot.pluginName = "Internal (\(slot.defaultType.displayName))"
-            slot.pluginId = ""
-            slot.vstPath = nil
             saveSlotConfig(slotIndex: slotIndex)
             DispatchQueue.main.async { [weak self] in
                 self?.onSlotsChanged?()
@@ -305,71 +300,38 @@ public class RanePluginHostService {
             return
         }
 
-        // 2A. Instantiate VST3 Plugin (.vst3)
-        if info.format == .vst3 {
-            let vstPath = info.path
-            if let inst = rane_vst3_load(vstPath, 48000.0, 512) {
-                slot.vst3Instance = inst
-                slot.vstPath = vstPath
-                slot.pluginFormat = .vst3
-                slot.pluginName = info.name
-                slot.pluginId = info.id
-                slot.isCustomPlugin = true
-                slot.isLoaded = true
-                self.saveSlotConfig(slotIndex: slotIndex)
-                print("[RanePluginHostService] Slot \(slotIndex) (\(slot.defaultType.displayName)) -> VST3 Plugin '\(info.name)' (\(info.manufacturer)) erfolgreich aktiviert!")
-                DispatchQueue.main.async { [weak self] in
-                    self?.onSlotsChanged?()
-                    completion?(true)
-                }
-            } else {
-                print("[RanePluginHostService] Fehler beim Laden von VST3: \(vstPath)")
-                DispatchQueue.main.async { completion?(false) }
-            }
+        // 2. Instantiate VST2 Plugin (.vst)
+        guard info.format == .vst2 else {
+            print("[RanePluginHostService] VST3 ist deaktiviert. Nur VST2 wird unterstützt.")
+            DispatchQueue.main.async { completion?(false) }
             return
         }
 
-        // 2B. Instantiate VST2 Plugin (.vst)
-        if info.format == .vst2 {
-            let vstPath = info.path
-            var bundleRef: UnsafeMutableRawPointer? = nil
-            if let effect = rane_vst_load(vstPath, &bundleRef, 48000.0, 512) {
-                slot.vstEffect = effect
-                slot.vstBundle = bundleRef
-                slot.vstPath = vstPath
-                slot.pluginFormat = .vst2
-                slot.pluginName = info.name
-                slot.pluginId = info.id
-                slot.isCustomPlugin = true
-                slot.isLoaded = true
-                self.saveSlotConfig(slotIndex: slotIndex)
-                print("[RanePluginHostService] Slot \(slotIndex) (\(slot.defaultType.displayName)) -> VST2 Plugin '\(info.name)' (\(info.manufacturer)) erfolgreich aktiviert!")
-                DispatchQueue.main.async { [weak self] in
-                    self?.onSlotsChanged?()
-                    completion?(true)
-                }
-            } else {
-                print("[RanePluginHostService] Fehler beim Laden von VST2: \(vstPath)")
-                DispatchQueue.main.async { completion?(false) }
+        let vstPath = info.path
+        var bundleRef: UnsafeMutableRawPointer? = nil
+        if let effect = rane_vst_load(vstPath, &bundleRef, 48000.0, 4096) {
+            slot.vstEffect = effect
+            slot.vstBundle = bundleRef
+            slot.vstPath = vstPath
+            slot.pluginFormat = .vst2
+            slot.pluginName = info.name
+            slot.pluginId = info.id
+            slot.isCustomPlugin = true
+            slot.isLoaded = true
+            self.saveSlotConfig(slotIndex: slotIndex)
+            print("[RanePluginHostService] Slot \(slotIndex) -> VST2 Plugin '\(info.name)' (\(info.manufacturer)) erfolgreich aktiviert!")
+            DispatchQueue.main.async { [weak self] in
+                self?.onSlotsChanged?()
+                completion?(true)
             }
-            return
+        } else {
+            print("[RanePluginHostService] Fehler beim Laden von VST2: \(vstPath)")
+            DispatchQueue.main.async { completion?(false) }
         }
     }
 
-    // MARK: - Per-Slot Internal Type & MIDI Configuration
-    public func setSlotInternalType(slotIndex: Int, fxType: FlexFxType) {
-        guard slotIndex >= 0 && slotIndex < slots.count else { return }
-        let slot = slots[slotIndex]
-        slot.unloadPluginInstance()
-        slot.isCustomPlugin = false
-        slot.pluginId = ""
-        slot.vstPath = nil
-        slot.defaultType = fxType
-        slot.pluginName = "Internal (\(fxType.displayName))"
-        saveSlotConfig(slotIndex: slotIndex)
-        DispatchQueue.main.async { [weak self] in
-            self?.onSlotsChanged?()
-        }
+    public func unloadSlot(slotIndex: Int) {
+        loadPlugin(slotIndex: slotIndex, pluginInfo: nil, completion: nil)
     }
 
     public func setSlotMidiSource(slotIndex: Int, sourceId: String) {
@@ -401,9 +363,9 @@ public class RanePluginHostService {
 
     // MARK: - Route Incoming MIDI Events & External MIDI Clock to VST Slots
     public func routeIncomingMidi(fromSourceId sourceId: String, status: UInt8, d1: UInt8, d2: UInt8) {
-        // Deliver to Slot 0 (VST Effekt 1) and Slot 1 (VST Effekt 2)
-        for slotIdx in 0..<min(2, slots.count) {
+        for slotIdx in 0..<slots.count {
             let slot = slots[slotIdx]
+            guard slot.isLoaded else { continue }
             let cfgSource = slot.midiInputSourceId
             if cfgSource == "OFF" { continue }
 
@@ -430,12 +392,12 @@ public class RanePluginHostService {
         }
     }
 
-    // MARK: - Open Plugin Native UI Window (VST3 & VST2)
+    // MARK: - Open Plugin Native UI Window (VST2 / VST3)
     public func openPluginUI(for slotIndex: Int) {
         guard slotIndex >= 0 && slotIndex < slots.count else { return }
         let slot = slots[slotIndex]
 
-        guard slot.isCustomPlugin else { return }
+        guard slot.isCustomPlugin, (slot.vstEffect != nil || slot.vst3Instance != nil) else { return }
 
         // If window is already open, bring to front
         if let wc = slot.windowController, let win = wc.window {
@@ -444,57 +406,95 @@ public class RanePluginHostService {
             return
         }
 
-        let winTitle = "\(slot.pluginName) [\(slot.pluginFormat.rawValue)] — VST Effekt \(slotIndex + 1)"
+        let winTitle = "\(slot.pluginName) [\(slot.pluginFormat.rawValue)] — VST Slot \(slotIndex + 1)"
+
+        var w: Int32 = 640
+        var h: Int32 = 400
+        var canResize = true
+
+        if let vst = slot.vstEffect {
+            if rane_vst_get_editor_rect(vst, &w, &h) && w > 100 && h > 100 {
+                // Bounds obtained
+            }
+        } else if let vst3 = slot.vst3Instance {
+            if rane_vst3_get_editor_rect(vst3, &w, &h) && w > 100 && h > 100 {
+                // Bounds obtained
+            }
+            canResize = rane_vst3_check_can_resize(vst3)
+        }
+
+        let styleMask: NSWindow.StyleMask = canResize
+            ? [.titled, .closable, .miniaturizable, .resizable]
+            : [.titled, .closable, .miniaturizable]
 
         let window = NSWindow(
-            contentRect: NSRect(x: 200, y: 200, width: 720, height: 480),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            contentRect: NSRect(x: 200, y: 200, width: CGFloat(w), height: CGFloat(h)),
+            styleMask: styleMask,
             backing: .buffered,
             defer: false
         )
         window.title = winTitle
         window.isReleasedWhenClosed = false
         window.backgroundColor = NSColor(red: 0.12, green: 0.13, blue: 0.15, alpha: 1.0)
+        window.acceptsMouseMovedEvents = true
+
+        let container = PluginContainerView(frame: NSRect(x: 0, y: 0, width: CGFloat(w), height: CGFloat(h)))
+        container.wantsLayer = true
+        container.autoresizingMask = [.width, .height]
+        window.contentView = container
 
         let wc = PluginWindowController(window: window)
         wc.window?.delegate = wc
         wc.onClose = { [weak slot] in
-            if let vst3 = slot?.vst3Instance {
-                rane_vst3_close_editor(vst3)
+            if let v = slot?.vstEffect {
+                rane_vst_close_editor(v)
             }
-            if let vst = slot?.vstEffect {
-                rane_vst_close_editor(vst)
+            if let v3 = slot?.vst3Instance {
+                rane_vst3_close_editor(v3)
             }
             slot?.windowController = nil
         }
         slot.windowController = wc
 
-        // 1. Native VST3 IPlugView NSView Editor Window
-        if let vst3 = slot.vst3Instance {
-            var w: Int32 = 720
-            var h: Int32 = 480
-            if rane_vst3_get_editor_rect(vst3, &w, &h) && w > 100 && h > 100 {
-                window.setContentSize(NSSize(width: CGFloat(w), height: CGFloat(h)))
+        // 1. Native VST2 Cocoa Editor Window
+        if let vst = slot.vstEffect {
+            rane_vst_open_editor(vst, Unmanaged.passUnretained(container).toOpaque())
+            wc.onIdle = { [weak slot] in
+                if let v = slot?.vstEffect {
+                    rane_vst_edit_idle(v)
+                }
             }
-            if let cv = window.contentView {
-                _ = rane_vst3_open_editor(vst3, Unmanaged.passUnretained(cv).toOpaque())
-            }
+            wc.startIdleTimer()
+
             window.center()
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
 
-        // 2. Native VST2 Cocoa Editor Window
-        if let vst = slot.vstEffect {
-            var w: Int32 = 640
-            var h: Int32 = 400
-            if rane_vst_get_editor_rect(vst, &w, &h) && w > 100 && h > 100 {
-                window.setContentSize(NSSize(width: CGFloat(w), height: CGFloat(h)))
+        // 2. Native VST3 Cocoa Editor Window
+        if let vst3 = slot.vst3Instance {
+            let ctx = Unmanaged.passUnretained(window).toOpaque()
+            rane_vst3_set_resize_callback(vst3, { winContext, newW, newH in
+                guard let winCtx = winContext else { return }
+                let win = Unmanaged<NSWindow>.fromOpaque(winCtx).takeUnretainedValue()
+                DispatchQueue.main.async {
+                    win.setContentSize(NSSize(width: CGFloat(newW), height: CGFloat(newH)))
+                }
+            }, ctx)
+
+            let opened = rane_vst3_open_editor(vst3, Unmanaged.passUnretained(container).toOpaque())
+            if opened {
+                rane_vst3_set_focus(vst3, true)
             }
-            if let cv = window.contentView {
-                rane_vst_open_editor(vst, Unmanaged.passUnretained(cv).toOpaque())
+
+            wc.onFocus = { [weak slot] hasFocus in
+                if let v3 = slot?.vst3Instance {
+                    rane_vst3_set_focus(v3, hasFocus)
+                }
             }
+            wc.startIdleTimer()
+
             window.center()
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -522,10 +522,10 @@ public class RanePluginHostService {
     private func saveSlotConfig(slotIndex: Int) {
         let slot = slots[slotIndex]
         let key = "\(userDefaultsPrefix)\(slotIndex)"
-        if slot.isCustomPlugin {
+        if slot.isCustomPlugin && slot.isLoaded {
             UserDefaults.standard.set(slot.pluginId, forKey: key)
         } else {
-            UserDefaults.standard.set("INTERNAL:\(slot.defaultType.rawValue)", forKey: key)
+            UserDefaults.standard.set("EMPTY", forKey: key)
         }
         UserDefaults.standard.set(slot.midiInputSourceId, forKey: "\(midiSourcePrefix)\(slotIndex)")
         UserDefaults.standard.set(slot.midiChannelFilter, forKey: "\(midiChannelPrefix)\(slotIndex)")
@@ -545,14 +545,8 @@ public class RanePluginHostService {
             }
 
             let key = "\(userDefaultsPrefix)\(i)"
-            if let savedId = UserDefaults.standard.string(forKey: key), !savedId.isEmpty {
-                if savedId.hasPrefix("INTERNAL:") {
-                    let numStr = String(savedId.dropFirst("INTERNAL:".count))
-                    if let raw = Int(numStr), let fx = FlexFxType(rawValue: raw) {
-                        slot.defaultType = fx
-                        slot.pluginName = "Internal (\(fx.displayName))"
-                    }
-                } else if let match = availablePlugins.first(where: { $0.id == savedId }) {
+            if let savedId = UserDefaults.standard.string(forKey: key), !savedId.isEmpty, savedId != "EMPTY" {
+                if let match = availablePlugins.first(where: { $0.id == savedId }) {
                     loadPlugin(slotIndex: i, pluginInfo: match)
                 }
             }
@@ -560,9 +554,45 @@ public class RanePluginHostService {
     }
 }
 
-class PluginWindowController: NSWindowController, NSWindowDelegate {
+final class PluginContainerView: NSView {
+    override var acceptsFirstResponder: Bool { true }
+}
+
+final class PluginWindowController: NSWindowController, NSWindowDelegate {
     var onClose: (() -> Void)?
+    var onFocus: ((Bool) -> Void)?
+    var onIdle: (() -> Void)?
+    private var idleTimer: Timer?
+
+    func startIdleTimer() {
+        stopIdleTimer()
+        let t = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            self?.onIdle?()
+        }
+        RunLoop.main.add(t, forMode: .common)
+        self.idleTimer = t
+    }
+
+    func stopIdleTimer() {
+        idleTimer?.invalidate()
+        idleTimer = nil
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        onFocus?(true)
+        if let win = window, let cv = win.contentView {
+            if let firstSub = cv.subviews.first {
+                win.makeFirstResponder(firstSub)
+            }
+        }
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
+        onFocus?(false)
+    }
+
     func windowWillClose(_ notification: Notification) {
+        stopIdleTimer()
         onClose?()
     }
 }

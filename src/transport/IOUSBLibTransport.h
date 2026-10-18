@@ -16,6 +16,7 @@
 #include <IOKit/hid/IOHIDManager.h>
 #include <IOKit/hid/IOHIDDevice.h>
 #include <atomic>
+#include <mutex>
 #include <dispatch/dispatch.h>
 #include <pthread.h>
 
@@ -174,6 +175,7 @@ private:
     std::atomic<bool> mShutdown{false};
     std::atomic<bool> mRunning{false};
     std::atomic<bool> mDeviceOpen{false};
+    std::mutex        mDeviceStateMutex;
 
     std::atomic<bool> mOutSlotInFlight[kDoubleBuffer];
     std::atomic<bool> mInSlotInFlight[kDoubleBuffer];

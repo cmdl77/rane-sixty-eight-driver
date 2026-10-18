@@ -8,9 +8,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var windowController: MainWindowController?
     var statusItem: NSStatusItem?
     var statusTimer: Timer?
+    private var realtimeActivityToken: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+
+        // Prevent macOS App Nap & background CPU throttling when Safari or other apps are active in foreground
+        realtimeActivityToken = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiatedAllowingIdleSystemSleep, .latencyCritical],
+            reason: "Rane Driver Manager Low-Latency Audio and MIDI Processing"
+        )
         if let iconPath = Bundle.main.path(forResource: "AppIcon", ofType: "icns"),
            let iconImg = NSImage(contentsOfFile: iconPath) {
             NSApp.applicationIconImage = iconImg

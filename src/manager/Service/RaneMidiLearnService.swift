@@ -4,8 +4,82 @@
 import Foundation
 import CoreMIDI
 
+public enum ChannelControlType: String, CaseIterable, Codable {
+    case slot1Toggle   = "SLOT1_TOGGLE"
+    case slot1PreGain  = "SLOT1_PRE_GAIN"
+    case slot1PostGain = "SLOT1_POST_GAIN"
+    case slot2Toggle   = "SLOT2_TOGGLE"
+    case slot2PreGain  = "SLOT2_PRE_GAIN"
+    case slot2PostGain = "SLOT2_POST_GAIN"
+    case dryPreGain    = "DRY_PRE_GAIN"
+    case dryPostGain   = "DRY_POST_GAIN"
+
+    public var displayName: String {
+        switch self {
+        case .slot1Toggle:   return "Slot 1 • ON / OFF"
+        case .slot1PreGain:  return "Slot 1 • Pre-Gain (Fader)"
+        case .slot1PostGain: return "Slot 1 • Post-Gain (Fader)"
+        case .slot2Toggle:   return "Slot 2 • ON / OFF"
+        case .slot2PreGain:  return "Slot 2 • Pre-Gain (Fader)"
+        case .slot2PostGain: return "Slot 2 • Post-Gain (Fader)"
+        case .dryPreGain:    return "Dry • Pre-Gain (Fader)"
+        case .dryPostGain:   return "Dry • Post-Gain (Fader)"
+        }
+    }
+}
+
 public enum FlexFxMidiTarget: String, CaseIterable, Codable {
-    // ── New 3-Path Parallel Matrix Targets ──
+    // ── Dedicated PGM 1 (Deck 1) Targets ──
+    case pgm1Slot1Toggle   = "PGM1_SLOT1_TOGGLE"
+    case pgm1Slot1PreGain  = "PGM1_SLOT1_PRE_GAIN"
+    case pgm1Slot1PostGain = "PGM1_SLOT1_POST_GAIN"
+    case pgm1Slot2Toggle   = "PGM1_SLOT2_TOGGLE"
+    case pgm1Slot2PreGain  = "PGM1_SLOT2_PRE_GAIN"
+    case pgm1Slot2PostGain = "PGM1_SLOT2_POST_GAIN"
+    case pgm1DryPreGain    = "PGM1_DRY_PRE_GAIN"
+    case pgm1DryPostGain   = "PGM1_DRY_POST_GAIN"
+
+    // ── Dedicated PGM 2 (Deck 2) Targets ──
+    case pgm2Slot1Toggle   = "PGM2_SLOT1_TOGGLE"
+    case pgm2Slot1PreGain  = "PGM2_SLOT1_PRE_GAIN"
+    case pgm2Slot1PostGain = "PGM2_SLOT1_POST_GAIN"
+    case pgm2Slot2Toggle   = "PGM2_SLOT2_TOGGLE"
+    case pgm2Slot2PreGain  = "PGM2_SLOT2_PRE_GAIN"
+    case pgm2Slot2PostGain = "PGM2_SLOT2_POST_GAIN"
+    case pgm2DryPreGain    = "PGM2_DRY_PRE_GAIN"
+    case pgm2DryPostGain   = "PGM2_DRY_POST_GAIN"
+
+    // ── Dedicated PGM 3 (Deck 3) Targets ──
+    case pgm3Slot1Toggle   = "PGM3_SLOT1_TOGGLE"
+    case pgm3Slot1PreGain  = "PGM3_SLOT1_PRE_GAIN"
+    case pgm3Slot1PostGain = "PGM3_SLOT1_POST_GAIN"
+    case pgm3Slot2Toggle   = "PGM3_SLOT2_TOGGLE"
+    case pgm3Slot2PreGain  = "PGM3_SLOT2_PRE_GAIN"
+    case pgm3Slot2PostGain = "PGM3_SLOT2_POST_GAIN"
+    case pgm3DryPreGain    = "PGM3_DRY_PRE_GAIN"
+    case pgm3DryPostGain   = "PGM3_DRY_POST_GAIN"
+
+    // ── Dedicated PGM 4 (Deck 4) Targets ──
+    case pgm4Slot1Toggle   = "PGM4_SLOT1_TOGGLE"
+    case pgm4Slot1PreGain  = "PGM4_SLOT1_PRE_GAIN"
+    case pgm4Slot1PostGain = "PGM4_SLOT1_POST_GAIN"
+    case pgm4Slot2Toggle   = "PGM4_SLOT2_TOGGLE"
+    case pgm4Slot2PreGain  = "PGM4_SLOT2_PRE_GAIN"
+    case pgm4Slot2PostGain = "PGM4_SLOT2_POST_GAIN"
+    case pgm4DryPreGain    = "PGM4_DRY_PRE_GAIN"
+    case pgm4DryPostGain   = "PGM4_DRY_POST_GAIN"
+
+    // ── Dedicated FlexFX (Send/Return) Targets ──
+    case flexFxSlot1Toggle   = "FLEXFX_SLOT1_TOGGLE"
+    case flexFxSlot1PreGain  = "FLEXFX_SLOT1_PRE_GAIN"
+    case flexFxSlot1PostGain = "FLEXFX_SLOT1_POST_GAIN"
+    case flexFxSlot2Toggle   = "FLEXFX_SLOT2_TOGGLE"
+    case flexFxSlot2PreGain  = "FLEXFX_SLOT2_PRE_GAIN"
+    case flexFxSlot2PostGain = "FLEXFX_SLOT2_POST_GAIN"
+    case flexFxDryPreGain    = "FLEXFX_DRY_PRE_GAIN"
+    case flexFxDryPostGain   = "FLEXFX_DRY_POST_GAIN"
+
+    // ── Aktiver Kanal (UI Fokus / Global Matrix) ──
     case usbRecordKnob   = "USB_RECORD_KNOB"   // Left Input Selector (USB RECORD Ch 1–12 / KNOB)
     case fx1PreGain      = "FX1_PRE_GAIN"      // Path 1 Pre-Gain Fader
     case fx2PreGain      = "FX2_PRE_GAIN"      // Path 2 Pre-Gain Fader
@@ -49,17 +123,179 @@ public enum FlexFxMidiTarget: String, CaseIterable, Codable {
     case depth       = "DEPTH"
     case prePost     = "PRE_POST"
 
+    public var channelIndexAndControl: (channelIndex: Int, control: ChannelControlType)? {
+        switch self {
+        case .pgm1Slot1Toggle:   return (0, .slot1Toggle)
+        case .pgm1Slot1PreGain:  return (0, .slot1PreGain)
+        case .pgm1Slot1PostGain: return (0, .slot1PostGain)
+        case .pgm1Slot2Toggle:   return (0, .slot2Toggle)
+        case .pgm1Slot2PreGain:  return (0, .slot2PreGain)
+        case .pgm1Slot2PostGain: return (0, .slot2PostGain)
+        case .pgm1DryPreGain:    return (0, .dryPreGain)
+        case .pgm1DryPostGain:   return (0, .dryPostGain)
+
+        case .pgm2Slot1Toggle:   return (1, .slot1Toggle)
+        case .pgm2Slot1PreGain:  return (1, .slot1PreGain)
+        case .pgm2Slot1PostGain: return (1, .slot1PostGain)
+        case .pgm2Slot2Toggle:   return (1, .slot2Toggle)
+        case .pgm2Slot2PreGain:  return (1, .slot2PreGain)
+        case .pgm2Slot2PostGain: return (1, .slot2PostGain)
+        case .pgm2DryPreGain:    return (1, .dryPreGain)
+        case .pgm2DryPostGain:   return (1, .dryPostGain)
+
+        case .pgm3Slot1Toggle:   return (2, .slot1Toggle)
+        case .pgm3Slot1PreGain:  return (2, .slot1PreGain)
+        case .pgm3Slot1PostGain: return (2, .slot1PostGain)
+        case .pgm3Slot2Toggle:   return (2, .slot2Toggle)
+        case .pgm3Slot2PreGain:  return (2, .slot2PreGain)
+        case .pgm3Slot2PostGain: return (2, .slot2PostGain)
+        case .pgm3DryPreGain:    return (2, .dryPreGain)
+        case .pgm3DryPostGain:   return (2, .dryPostGain)
+
+        case .pgm4Slot1Toggle:   return (3, .slot1Toggle)
+        case .pgm4Slot1PreGain:  return (3, .slot1PreGain)
+        case .pgm4Slot1PostGain: return (3, .slot1PostGain)
+        case .pgm4Slot2Toggle:   return (3, .slot2Toggle)
+        case .pgm4Slot2PreGain:  return (3, .slot2PreGain)
+        case .pgm4Slot2PostGain: return (3, .slot2PostGain)
+        case .pgm4DryPreGain:    return (3, .dryPreGain)
+        case .pgm4DryPostGain:   return (3, .dryPostGain)
+
+        case .flexFxSlot1Toggle:   return (4, .slot1Toggle)
+        case .flexFxSlot1PreGain:  return (4, .slot1PreGain)
+        case .flexFxSlot1PostGain: return (4, .slot1PostGain)
+        case .flexFxSlot2Toggle:   return (4, .slot2Toggle)
+        case .flexFxSlot2PreGain:  return (4, .slot2PreGain)
+        case .flexFxSlot2PostGain: return (4, .slot2PostGain)
+        case .flexFxDryPreGain:    return (4, .dryPreGain)
+        case .flexFxDryPostGain:   return (4, .dryPostGain)
+
+        default: return nil
+        }
+    }
+
+    public static func target(forChannel channelIndex: Int, control: ChannelControlType) -> FlexFxMidiTarget {
+        switch channelIndex {
+        case 0:
+            switch control {
+            case .slot1Toggle:   return .pgm1Slot1Toggle
+            case .slot1PreGain:  return .pgm1Slot1PreGain
+            case .slot1PostGain: return .pgm1Slot1PostGain
+            case .slot2Toggle:   return .pgm1Slot2Toggle
+            case .slot2PreGain:  return .pgm1Slot2PreGain
+            case .slot2PostGain: return .pgm1Slot2PostGain
+            case .dryPreGain:    return .pgm1DryPreGain
+            case .dryPostGain:   return .pgm1DryPostGain
+            }
+        case 1:
+            switch control {
+            case .slot1Toggle:   return .pgm2Slot1Toggle
+            case .slot1PreGain:  return .pgm2Slot1PreGain
+            case .slot1PostGain: return .pgm2Slot1PostGain
+            case .slot2Toggle:   return .pgm2Slot2Toggle
+            case .slot2PreGain:  return .pgm2Slot2PreGain
+            case .slot2PostGain: return .pgm2Slot2PostGain
+            case .dryPreGain:    return .pgm2DryPreGain
+            case .dryPostGain:   return .pgm2DryPostGain
+            }
+        case 2:
+            switch control {
+            case .slot1Toggle:   return .pgm3Slot1Toggle
+            case .slot1PreGain:  return .pgm3Slot1PreGain
+            case .slot1PostGain: return .pgm3Slot1PostGain
+            case .slot2Toggle:   return .pgm3Slot2Toggle
+            case .slot2PreGain:  return .pgm3Slot2PreGain
+            case .slot2PostGain: return .pgm3Slot2PostGain
+            case .dryPreGain:    return .pgm3DryPreGain
+            case .dryPostGain:   return .pgm3DryPostGain
+            }
+        case 3:
+            switch control {
+            case .slot1Toggle:   return .pgm4Slot1Toggle
+            case .slot1PreGain:  return .pgm4Slot1PreGain
+            case .slot1PostGain: return .pgm4Slot1PostGain
+            case .slot2Toggle:   return .pgm4Slot2Toggle
+            case .slot2PreGain:  return .pgm4Slot2PreGain
+            case .slot2PostGain: return .pgm4Slot2PostGain
+            case .dryPreGain:    return .pgm4DryPreGain
+            case .dryPostGain:   return .pgm4DryPostGain
+            }
+        default: // 4 = FlexFX
+            switch control {
+            case .slot1Toggle:   return .flexFxSlot1Toggle
+            case .slot1PreGain:  return .flexFxSlot1PreGain
+            case .slot1PostGain: return .flexFxSlot1PostGain
+            case .slot2Toggle:   return .flexFxSlot2Toggle
+            case .slot2PreGain:  return .flexFxSlot2PreGain
+            case .slot2PostGain: return .flexFxSlot2PostGain
+            case .dryPreGain:    return .flexFxDryPreGain
+            case .dryPostGain:   return .flexFxDryPostGain
+            }
+        }
+    }
+
     public var displayName: String {
         switch self {
+        // PGM 1 (Deck 1)
+        case .pgm1Slot1Toggle:   return "PGM 1 • Slot 1 ON / OFF"
+        case .pgm1Slot1PreGain:  return "PGM 1 • Slot 1 Pre-Gain (Fader)"
+        case .pgm1Slot1PostGain: return "PGM 1 • Slot 1 Post-Gain (Fader)"
+        case .pgm1Slot2Toggle:   return "PGM 1 • Slot 2 ON / OFF"
+        case .pgm1Slot2PreGain:  return "PGM 1 • Slot 2 Pre-Gain (Fader)"
+        case .pgm1Slot2PostGain: return "PGM 1 • Slot 2 Post-Gain (Fader)"
+        case .pgm1DryPreGain:    return "PGM 1 • Dry Pre-Gain (Fader)"
+        case .pgm1DryPostGain:   return "PGM 1 • Dry Post-Gain (Fader)"
+
+        // PGM 2 (Deck 2)
+        case .pgm2Slot1Toggle:   return "PGM 2 • Slot 1 ON / OFF"
+        case .pgm2Slot1PreGain:  return "PGM 2 • Slot 1 Pre-Gain (Fader)"
+        case .pgm2Slot1PostGain: return "PGM 2 • Slot 1 Post-Gain (Fader)"
+        case .pgm2Slot2Toggle:   return "PGM 2 • Slot 2 ON / OFF"
+        case .pgm2Slot2PreGain:  return "PGM 2 • Slot 2 Pre-Gain (Fader)"
+        case .pgm2Slot2PostGain: return "PGM 2 • Slot 2 Post-Gain (Fader)"
+        case .pgm2DryPreGain:    return "PGM 2 • Dry Pre-Gain (Fader)"
+        case .pgm2DryPostGain:   return "PGM 2 • Dry Post-Gain (Fader)"
+
+        // PGM 3 (Deck 3)
+        case .pgm3Slot1Toggle:   return "PGM 3 • Slot 1 ON / OFF"
+        case .pgm3Slot1PreGain:  return "PGM 3 • Slot 1 Pre-Gain (Fader)"
+        case .pgm3Slot1PostGain: return "PGM 3 • Slot 1 Post-Gain (Fader)"
+        case .pgm3Slot2Toggle:   return "PGM 3 • Slot 2 ON / OFF"
+        case .pgm3Slot2PreGain:  return "PGM 3 • Slot 2 Pre-Gain (Fader)"
+        case .pgm3Slot2PostGain: return "PGM 3 • Slot 2 Post-Gain (Fader)"
+        case .pgm3DryPreGain:    return "PGM 3 • Dry Pre-Gain (Fader)"
+        case .pgm3DryPostGain:   return "PGM 3 • Dry Post-Gain (Fader)"
+
+        // PGM 4 (Deck 4)
+        case .pgm4Slot1Toggle:   return "PGM 4 • Slot 1 ON / OFF"
+        case .pgm4Slot1PreGain:  return "PGM 4 • Slot 1 Pre-Gain (Fader)"
+        case .pgm4Slot1PostGain: return "PGM 4 • Slot 1 Post-Gain (Fader)"
+        case .pgm4Slot2Toggle:   return "PGM 4 • Slot 2 ON / OFF"
+        case .pgm4Slot2PreGain:  return "PGM 4 • Slot 2 Pre-Gain (Fader)"
+        case .pgm4Slot2PostGain: return "PGM 4 • Slot 2 Post-Gain (Fader)"
+        case .pgm4DryPreGain:    return "PGM 4 • Dry Pre-Gain (Fader)"
+        case .pgm4DryPostGain:   return "PGM 4 • Dry Post-Gain (Fader)"
+
+        // FlexFX
+        case .flexFxSlot1Toggle:   return "FlexFX • Slot 1 ON / OFF"
+        case .flexFxSlot1PreGain:  return "FlexFX • Slot 1 Pre-Gain (Fader)"
+        case .flexFxSlot1PostGain: return "FlexFX • Slot 1 Post-Gain (Fader)"
+        case .flexFxSlot2Toggle:   return "FlexFX • Slot 2 ON / OFF"
+        case .flexFxSlot2PreGain:  return "FlexFX • Slot 2 Pre-Gain (Fader)"
+        case .flexFxSlot2PostGain: return "FlexFX • Slot 2 Post-Gain (Fader)"
+        case .flexFxDryPreGain:    return "FlexFX • Dry Pre-Gain (Fader)"
+        case .flexFxDryPostGain:   return "FlexFX • Dry Post-Gain (Fader)"
+
+        // Active Channel
         case .usbRecordKnob:   return "USB RECORD Ch 1–12 (KNOB)"
-        case .fx1PreGain:      return "VST Effekt 1 • Pre-Gain (Fader)"
-        case .fx2PreGain:      return "VST Effekt 2 • Pre-Gain (Fader)"
-        case .dryPreGain:      return "Dry Signal • Pre-Gain (Fader)"
-        case .vst1Toggle:      return "VST Effekt 1 • ON / OFF"
-        case .vst2Toggle:      return "VST Effekt 2 • ON / OFF"
-        case .fx1PostGain:     return "VST Effekt 1 • Post-Gain (Fader)"
-        case .fx2PostGain:     return "VST Effekt 2 • Post-Gain (Fader)"
-        case .dryPostGain:     return "Dry Signal • Post-Gain (Fader)"
+        case .fx1PreGain:      return "Aktiver Kanal • Slot 1 Pre-Gain (Fader)"
+        case .fx2PreGain:      return "Aktiver Kanal • Slot 2 Pre-Gain (Fader)"
+        case .dryPreGain:      return "Aktiver Kanal • Dry Pre-Gain (Fader)"
+        case .vst1Toggle:      return "Aktiver Kanal • Slot 1 ON / OFF"
+        case .vst2Toggle:      return "Aktiver Kanal • Slot 2 ON / OFF"
+        case .fx1PostGain:     return "Aktiver Kanal • Slot 1 Post-Gain (Fader)"
+        case .fx2PostGain:     return "Aktiver Kanal • Slot 2 Post-Gain (Fader)"
+        case .dryPostGain:     return "Aktiver Kanal • Dry Post-Gain (Fader)"
         case .usbPlaybackKnob: return "USB PLAYBACK Ch 1–10 (KNOB)"
         case .outputFlexFx:    return "Ausgang: FlexFX Return (Ch 9–10)"
         case .outputPgm1:      return "Ausgang: Deck 1 / PGM 1 (Ch 1–2)"
@@ -93,6 +329,14 @@ public enum FlexFxMidiTarget: String, CaseIterable, Codable {
     }
 
     public var defaultInteractionType: ControlInteractionType {
+        if let (_, control) = channelIndexAndControl {
+            switch control {
+            case .slot1Toggle, .slot2Toggle:
+                return .button
+            case .slot1PreGain, .slot1PostGain, .slot2PreGain, .slot2PostGain, .dryPreGain, .dryPostGain:
+                return .faderKnob
+            }
+        }
         switch self {
         case .usbRecordKnob, .usbPlaybackKnob,
              .fx1PreGain, .fx2PreGain, .dryPreGain,
@@ -109,47 +353,13 @@ public enum FlexFxMidiTarget: String, CaseIterable, Codable {
             self = .fxDubDelay
             return
         }
-        switch rawValue {
-        case "USB_RECORD_KNOB": self = .usbRecordKnob
-        case "FX1_PRE_GAIN": self = .fx1PreGain
-        case "FX2_PRE_GAIN": self = .fx2PreGain
-        case "DRY_PRE_GAIN": self = .dryPreGain
-        case "VST1_TOGGLE": self = .vst1Toggle
-        case "VST2_TOGGLE": self = .vst2Toggle
-        case "FX1_POST_GAIN": self = .fx1PostGain
-        case "FX2_POST_GAIN": self = .fx2PostGain
-        case "DRY_POST_GAIN": self = .dryPostGain
-        case "USB_PLAYBACK_KNOB": self = .usbPlaybackKnob
-        case "OUTPUT_FLEXFX": self = .outputFlexFx
-        case "OUTPUT_PGM1": self = .outputPgm1
-        case "OUTPUT_PGM2": self = .outputPgm2
-        case "OUTPUT_PGM3": self = .outputPgm3
-        case "OUTPUT_PGM4": self = .outputPgm4
-        case "FX_FILTER": self = .fxFilter
-        case "FX_FLANGER": self = .fxFlanger
-        case "FX_PHASER": self = .fxPhaser
-        case "FX_ECHO": self = .fxEcho
-        case "FX_DUB_DELAY": self = .fxDubDelay
-        case "FX_REVERB": self = .fxReverb
-        case "FX_TOGGLE": self = .fxToggle
-        case "PREV_BEAT": self = .prevBeat
-        case "NEXT_BEAT": self = .nextBeat
-        case "DRY_WET": self = .dryWet
-        case "DEPTH": self = .depth
-        case "TEMPO": self = .tempo
-        case "PRE_POST": self = .prePost
-        case "MODULE_POWER": self = .modulePower
-        case "ABLETON_LINK": self = .abletonLink
-        case "INPUT_GAIN": self = .inputGain
-        case "INPUT_SELECT": self = .inputSelect
-        case "INPUT_FLEXFX": self = .inputFlexFx
-        case "INPUT_PGM1": self = .inputPgm1
-        case "INPUT_PGM2": self = .inputPgm2
-        case "INPUT_PGM3": self = .inputPgm3
-        case "INPUT_PGM4": self = .inputPgm4
-        case "INPUT_MAIN_MIX": self = .inputMainMix
-        default: return nil
+        for item in FlexFxMidiTarget.allCases {
+            if item.rawValue == rawValue {
+                self = item
+                return
+            }
         }
+        return nil
     }
 }
 
@@ -366,6 +576,9 @@ public class RaneMidiLearnService {
             }
         }
     }
+
+    // Active target currently being executed from incoming MIDI (to prevent re-entrant feedback loops)
+    public private(set) var activeExecutingTarget: FlexFxMidiTarget? = nil
 
     // Mappings: Target -> MIDI Message (In)
     private(set) var mappings: [FlexFxMidiTarget: MidiMapping] = [:]
@@ -777,11 +990,92 @@ public class RaneMidiLearnService {
     }
 
     private func executeTargetAction(target: FlexFxMidiTarget, rawValue: UInt8, normValue: Float, isPressed: Bool, interactionType: ControlInteractionType, buttonMode: ButtonMode = .toggle) {
+        activeExecutingTarget = target
+        defer { activeExecutingTarget = nil }
+
         let flex = RaneFlexFxService.shared
 
         // Encoder relative step calculation (65 / 1 = +1, 63 / 127 = -1)
         let isRelativeIncrement = (rawValue == 1 || rawValue == 65)
         let isRelativeDecrement = (rawValue == 127 || rawValue == 63)
+
+        // Dedicated Per-Channel Targets (PGM 1..4 & FlexFX)
+        if let (chIdx, control) = target.channelIndexAndControl {
+            guard chIdx < flex.channels.count else { return }
+            let ch = flex.channels[chIdx]
+            switch control {
+            case .slot1Toggle:
+                if interactionType == .button {
+                    switch buttonMode {
+                    case .toggle, .trigger:
+                        if isPressed { ch.isFx1Enabled.toggle() }
+                    case .hold, .direct:
+                        ch.isFx1Enabled = isPressed
+                    }
+                } else {
+                    ch.isFx1Enabled = (normValue > 0.5 || rawValue > 0)
+                }
+            case .slot2Toggle:
+                if interactionType == .button {
+                    switch buttonMode {
+                    case .toggle, .trigger:
+                        if isPressed { ch.isFx2Enabled.toggle() }
+                    case .hold, .direct:
+                        ch.isFx2Enabled = isPressed
+                    }
+                } else {
+                    ch.isFx2Enabled = (normValue > 0.5 || rawValue > 0)
+                }
+            case .slot1PreGain:
+                if interactionType == .encoder {
+                    let step = isRelativeIncrement ? 0.02 : (isRelativeDecrement ? -0.02 : (normValue > 0.5 ? 0.02 : -0.02))
+                    ch.fx1PreGain = max(0.0, min(1.5, ch.fx1PreGain + step))
+                } else {
+                    ch.fx1PreGain = Double(normValue)
+                }
+            case .slot1PostGain:
+                if interactionType == .encoder {
+                    let step = isRelativeIncrement ? 0.02 : (isRelativeDecrement ? -0.02 : (normValue > 0.5 ? 0.02 : -0.02))
+                    ch.fx1PostGain = max(0.0, min(1.5, ch.fx1PostGain + step))
+                } else {
+                    ch.fx1PostGain = Double(normValue)
+                }
+            case .slot2PreGain:
+                if interactionType == .encoder {
+                    let step = isRelativeIncrement ? 0.02 : (isRelativeDecrement ? -0.02 : (normValue > 0.5 ? 0.02 : -0.02))
+                    ch.fx2PreGain = max(0.0, min(1.5, ch.fx2PreGain + step))
+                } else {
+                    ch.fx2PreGain = Double(normValue)
+                }
+            case .slot2PostGain:
+                if interactionType == .encoder {
+                    let step = isRelativeIncrement ? 0.02 : (isRelativeDecrement ? -0.02 : (normValue > 0.5 ? 0.02 : -0.02))
+                    ch.fx2PostGain = max(0.0, min(1.5, ch.fx2PostGain + step))
+                } else {
+                    ch.fx2PostGain = Double(normValue)
+                }
+            case .dryPreGain:
+                if interactionType == .encoder {
+                    let step = isRelativeIncrement ? 0.02 : (isRelativeDecrement ? -0.02 : (normValue > 0.5 ? 0.02 : -0.02))
+                    ch.dryPreGain = max(0.0, min(1.5, ch.dryPreGain + step))
+                } else {
+                    ch.dryPreGain = Double(normValue)
+                }
+            case .dryPostGain:
+                if interactionType == .encoder {
+                    let step = isRelativeIncrement ? 0.02 : (isRelativeDecrement ? -0.02 : (normValue > 0.5 ? 0.02 : -0.02))
+                    ch.dryPostGain = max(0.0, min(1.5, ch.dryPostGain + step))
+                } else {
+                    ch.dryPostGain = Double(normValue)
+                }
+            }
+
+            onMidiActionTriggered?(target, normValue)
+            for obs in midiActionObservers.values {
+                obs(target, normValue)
+            }
+            return
+        }
 
         switch target {
         case .usbRecordKnob:
@@ -1030,6 +1324,8 @@ public class RaneMidiLearnService {
             if isPressed || interactionType == .faderKnob { flex.inputSource = .pgm4 }
         case .inputMainMix:
             if isPressed || interactionType == .faderKnob { flex.inputSource = .mainMix }
+        default:
+            break
         }
 
         onMidiActionTriggered?(target, normValue)

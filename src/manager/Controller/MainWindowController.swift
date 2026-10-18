@@ -408,7 +408,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             Localization.tr(en: "🎹 Controller & MIDI", de: "🎹 Controller & MIDI"),
             Localization.tr(en: "⚙️ System Status", de: "⚙️ System Status")
         ], trackingMode: .selectOne, target: self, action: #selector(onTabChanged))
-        segmentedNav.selectedSegment = 0
+        segmentedNav.selectedSegment = 2
         segmentedNav.segmentStyle = .texturedRounded
         segmentedNav.segmentDistribution = .fillEqually
         segmentedNav.controlSize = .regular

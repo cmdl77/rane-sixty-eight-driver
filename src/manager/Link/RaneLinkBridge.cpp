@@ -46,6 +46,7 @@ bool rane_link_init(double initial_bpm) {
     }
     gLink = abl_link_create(initial_bpm);
     gSessionState = abl_link_create_session_state();
+    abl_link_enable_start_stop_sync(gLink, true);
     abl_link_set_num_peers_callback(gLink, internal_peers_cb, nullptr);
     abl_link_set_tempo_callback(gLink, internal_tempo_cb, nullptr);
     gInitialized = true;
@@ -90,6 +91,52 @@ void rane_link_set_callbacks(RaneLinkPeersCallback peers_cb, RaneLinkTempoCallba
     std::lock_guard<std::mutex> lock(gMutex);
     gPeersCallback = peers_cb;
     gTempoCallback = tempo_cb;
+}
+
+double rane_link_get_beat(double quantum) {
+    std::lock_guard<std::mutex> lock(gMutex);
+    if (!gInitialized) return 0.0;
+    abl_link_capture_app_session_state(gLink, gSessionState);
+    int64_t now_micros = abl_link_clock_micros(gLink);
+    return abl_link_beat_at_time(gSessionState, now_micros, quantum > 0.0 ? quantum : 4.0);
+}
+
+double rane_link_get_phase(double quantum) {
+    std::lock_guard<std::mutex> lock(gMutex);
+    if (!gInitialized) return 0.0;
+    abl_link_capture_app_session_state(gLink, gSessionState);
+    int64_t now_micros = abl_link_clock_micros(gLink);
+    return abl_link_phase_at_time(gSessionState, now_micros, quantum > 0.0 ? quantum : 4.0);
+}
+
+int64_t rane_link_micros_to_next_beat(double quantum) {
+    std::lock_guard<std::mutex> lock(gMutex);
+    if (!gInitialized) return 500000;
+    abl_link_capture_app_session_state(gLink, gSessionState);
+    int64_t now_micros = abl_link_clock_micros(gLink);
+    double q = quantum > 0.0 ? quantum : 4.0;
+    double cur_beat = abl_link_beat_at_time(gSessionState, now_micros, q);
+    double next_beat = floor(cur_beat) + 1.0;
+    int64_t next_micros = abl_link_time_at_beat(gSessionState, next_beat, q);
+    int64_t diff = next_micros - now_micros;
+    if (diff <= 0) diff = 1000;
+    return diff;
+}
+
+bool rane_link_is_playing(void) {
+    std::lock_guard<std::mutex> lock(gMutex);
+    if (!gInitialized) return false;
+    abl_link_capture_app_session_state(gLink, gSessionState);
+    return abl_link_is_playing(gSessionState);
+}
+
+void rane_link_set_playing(bool playing) {
+    std::lock_guard<std::mutex> lock(gMutex);
+    if (!gInitialized) return;
+    abl_link_capture_app_session_state(gLink, gSessionState);
+    int64_t now_micros = abl_link_clock_micros(gLink);
+    abl_link_set_is_playing(gSessionState, playing, now_micros);
+    abl_link_commit_app_session_state(gLink, gSessionState);
 }
 
 void rane_link_destroy(void) {

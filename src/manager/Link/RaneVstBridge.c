@@ -5,7 +5,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stddef.h>
 #include <math.h>
+#include <mach/mach_time.h>
 
 // VST 2.4 Standard Opcodes
 #define effOpen                 0
@@ -23,6 +25,7 @@
 #define effEditGetRect          13
 #define effEditOpen             14
 #define effEditClose            15
+#define effEditIdle             19
 #define effProcessEvents        25
 #define effGetEffectName        45
 #define effGetVendorString      47
@@ -31,10 +34,12 @@
 #define effCanDo                51
 
 // Host opcodes
+#define audioMasterAutomate               0
 #define audioMasterVersion                1
 #define audioMasterGetTime                7
-#define audioMasterGetSampleRate          15
-#define audioMasterGetBlockSize           16
+#define audioMasterSizeWindow             15
+#define audioMasterGetSampleRate          16
+#define audioMasterGetBlockSize           17
 #define audioMasterGetCurrentProcessLevel 23
 #define audioMasterGetVendorString        32
 #define audioMasterGetProductString       33
@@ -95,7 +100,7 @@ typedef struct VstMidiEvent {
     char reserved2;
 } VstMidiEvent;
 
-#define MAX_VST_MIDI_EVENTS 256
+#define MAX_VST_MIDI_EVENTS 64
 
 typedef struct VstEventsBlock {
     int32_t numEvents;
@@ -106,6 +111,8 @@ typedef struct VstEventsBlock {
 typedef struct VstSlotMidiQueue {
     AEffect* effect;
     VstMidiEvent ring[MAX_VST_MIDI_EVENTS];
+    VstMidiEvent localEvents[MAX_VST_MIDI_EVENTS];
+    VstEventsBlock block;
     volatile uint32_t writeIdx;
     volatile uint32_t readIdx;
     double clockPhaseSamples;
@@ -113,8 +120,12 @@ typedef struct VstSlotMidiQueue {
     double ppqPos;
 } VstSlotMidiQueue;
 
-#define MAX_TRACKED_VST_SLOTS 8
+#define MAX_TRACKED_VST_SLOTS 16
 static VstSlotMidiQueue g_vstQueues[MAX_TRACKED_VST_SLOTS];
+
+#define MAX_VST_CHANNELS 32
+static float g_vstSilenceIn[8192] = {0};
+static float g_vstDiscardOut[MAX_VST_CHANNELS][8192] = {{0}};
 
 static VstTimeInfo g_hostTimeInfo = {
     .samplePos = 0.0,
@@ -206,8 +217,12 @@ static intptr_t rane_vst_host_callback(AEffect* effect, int32_t opcode, int32_t 
     switch (opcode) {
         case audioMasterVersion:
             return 2400; // VST 2.4
-        case audioMasterGetTime:
+        case audioMasterGetTime: {
+            static mach_timebase_info_data_t tb = {0, 0};
+            if (tb.denom == 0) mach_timebase_info(&tb);
+            g_hostTimeInfo.nanoSeconds = (double)((mach_absolute_time() * tb.numer) / tb.denom);
             return (intptr_t)&g_hostTimeInfo;
+        }
         case audioMasterGetSampleRate:
             return (intptr_t)g_hostTimeInfo.sampleRate;
         case audioMasterGetBlockSize:
@@ -374,49 +389,56 @@ void rane_vst_process(AEffect* effect, const float* inL, const float* inR, float
         g_hostTimeInfo.barStartPos = ((int32_t)(q->ppqPos / 4.0)) * 4.0;
         g_hostTimeInfo.samplesToNextClock = (int32_t)(samplesPerClock - q->clockPhaseSamples);
 
-        // Generate sample-accurate 24 PPQN MIDI Timing Clock (0xF8) events if enabled
-        if (g_sendMidiClock && samplesPerClock > 10.0) {
-            double phase = q->clockPhaseSamples;
-            for (int32_t f = 0; f < frames; f++) {
-                phase += 1.0;
-                if (phase >= samplesPerClock) {
-                    phase -= samplesPerClock;
-                    rane_vst_send_midi(effect, 0xF8, 0, 0, f);
-                }
-            }
-            q->clockPhaseSamples = phase;
-        }
-
         q->samplePos += (double)frames;
         q->ppqPos += ((double)frames) / samplesPerBeat;
 
-        // Flush queued MIDI events + MIDI Clock to plugin via effProcessEvents
+        // Flush queued MIDI events (Note On/Off, CC) to plugin via effProcessEvents
         if (q->readIdx != q->writeIdx) {
-            VstMidiEvent localEvents[MAX_VST_MIDI_EVENTS];
-            VstEventsBlock block;
-            memset(&block, 0, sizeof(block));
-
+            memset(&q->block, 0, sizeof(q->block));
             int32_t count = 0;
             while (q->readIdx != q->writeIdx && count < MAX_VST_MIDI_EVENTS) {
-                localEvents[count] = q->ring[q->readIdx];
-                block.events[count] = (VstEvent*)&localEvents[count];
+                q->localEvents[count] = q->ring[q->readIdx];
+                q->block.events[count] = (VstEvent*)&q->localEvents[count];
                 q->readIdx = (q->readIdx + 1) % MAX_VST_MIDI_EVENTS;
                 count++;
             }
             if (count > 0) {
-                block.numEvents = count;
-                effect->dispatcher(effect, effProcessEvents, 0, 0, &block, 0.0f);
+                q->block.numEvents = count;
+                effect->dispatcher(effect, effProcessEvents, 0, 0, &q->block, 0.0f);
             }
         }
     }
 
-    float* inBuffers[2] = { (float*)inL, (float*)inR };
-    float* outBuffers[2] = { outL, outR };
+    int numIn = effect->numInputs > 0 ? effect->numInputs : 2;
+    int numOut = effect->numOutputs > 0 ? effect->numOutputs : 2;
+    if (numIn > MAX_VST_CHANNELS) numIn = MAX_VST_CHANNELS;
+    if (numOut > MAX_VST_CHANNELS) numOut = MAX_VST_CHANNELS;
+
+    float* inBuffers[MAX_VST_CHANNELS];
+    float* outBuffers[MAX_VST_CHANNELS];
+
+    inBuffers[0] = (float*)inL;
+    inBuffers[1] = (float*)inR;
+    for (int i = 2; i < numIn; i++) {
+        inBuffers[i] = g_vstSilenceIn;
+    }
+
+    outBuffers[0] = outL;
+    outBuffers[1] = outR;
+    for (int i = 2; i < numOut; i++) {
+        outBuffers[i] = g_vstDiscardOut[i];
+    }
 
     if (effect->processReplacing) {
         effect->processReplacing(effect, inBuffers, outBuffers, frames);
     } else if (effect->process) {
         effect->process(effect, inBuffers, outBuffers, frames);
+    }
+
+    // Protect mixer bus & DAC from any NaN or Inf outputs produced by plugin algorithms
+    for (int32_t f = 0; f < frames; f++) {
+        if (isnan(outL[f]) || isinf(outL[f])) outL[f] = 0.0f;
+        if (isnan(outR[f]) || isinf(outR[f])) outR[f] = 0.0f;
     }
 }
 
@@ -444,6 +466,11 @@ void rane_vst_open_editor(AEffect* effect, void* nsViewPtr) {
 void rane_vst_close_editor(AEffect* effect) {
     if (!effect) return;
     effect->dispatcher(effect, effEditClose, 0, 0, NULL, 0.0f);
+}
+
+void rane_vst_edit_idle(AEffect* effect) {
+    if (!effect) return;
+    effect->dispatcher(effect, effEditIdle, 0, 0, NULL, 0.0f);
 }
 
 void rane_vst_close(AEffect* effect, void* bundle) {
@@ -780,7 +807,11 @@ typedef struct Vst3PlugFrameVtbl {
     uint32_t (*release)(void* thisPtr);
     int32_t (*resizeView)(void* thisPtr, Vst3PlugView* view, Vst3ViewRect* newSize);
 } Vst3PlugFrameVtbl;
-typedef struct Vst3PlugFrame { Vst3PlugFrameVtbl* lpVtbl; } Vst3PlugFrame;
+
+typedef struct Vst3PlugFrame {
+    Vst3PlugFrameVtbl* lpVtbl;
+    struct RaneVst3Instance* inst;
+} Vst3PlugFrame;
 
 static int32_t vst3_frame_qi(void* thisPtr, const uint8_t* iid, void** obj) {
     if (memcmp(iid, VST3_IID_FUnknown, 16) == 0 || memcmp(iid, VST3_IID_IPlugFrame, 16) == 0) {
@@ -790,15 +821,8 @@ static int32_t vst3_frame_qi(void* thisPtr, const uint8_t* iid, void** obj) {
     *obj = NULL;
     return -1;
 }
-static int32_t vst3_frame_resizeView(void* thisPtr, Vst3PlugView* view, Vst3ViewRect* newSize) {
-    (void)thisPtr;
-    if (view && newSize) {
-        view->lpVtbl->onSize(view, newSize);
-    }
-    return 0;
-}
+static int32_t vst3_frame_resizeView(void* thisPtr, Vst3PlugView* view, Vst3ViewRect* newSize);
 static Vst3PlugFrameVtbl g_vst3FrameVtbl = { vst3_frame_qi, vst3_host_ref, vst3_host_ref, vst3_frame_resizeView };
-static Vst3PlugFrame g_vst3PlugFrame = { &g_vst3FrameVtbl };
 
 // 4. Parameter Changes & Events queues for real-time audio processing
 #define MAX_VST3_PARAM_CHANGES 128
@@ -997,6 +1021,9 @@ struct RaneVst3Instance {
     Vst3ConnectionPoint* cpCtrl;
     Vst3MidiMapping* midiMapping;
     Vst3PlugView* activeView;
+    Vst3PlugFrame plugFrame;
+    RaneVstResizeCallback resizeCallback;
+    void* resizeContext;
 
     // Lock-free parameter change ring buffer (GUI performEdit & MIDI CC -> DSP process)
     Vst3ParamChangeItem paramRing[MAX_VST3_PARAM_CHANGES];
@@ -1013,6 +1040,19 @@ struct RaneVst3Instance {
     double clockPhaseSamples;
 };
 
+static int32_t vst3_frame_resizeView(void* thisPtr, Vst3PlugView* view, Vst3ViewRect* newSize) {
+    if (!view || !newSize) return -1;
+    Vst3PlugFrame* frame = (Vst3PlugFrame*)thisPtr;
+    struct RaneVst3Instance* inst = frame ? frame->inst : NULL;
+    if (inst && inst->resizeCallback) {
+        int32_t w = newSize->right - newSize->left;
+        int32_t h = newSize->bottom - newSize->top;
+        inst->resizeCallback(inst->resizeContext, w, h);
+    }
+    view->lpVtbl->onSize(view, newSize);
+    return 0;
+}
+
 static void vst3_push_param_change(RaneVst3Instance* inst, uint32_t paramId, double value, int32_t sampleOffset) {
     if (!inst) return;
     uint32_t w = inst->paramWriteIdx;
@@ -1022,6 +1062,32 @@ static void vst3_push_param_change(RaneVst3Instance* inst, uint32_t paramId, dou
     inst->paramRing[w].value = value;
     inst->paramRing[w].sampleOffset = sampleOffset;
     inst->paramWriteIdx = nextW;
+}
+
+#pragma pack(push, 8)
+typedef struct Vst3ParameterInfo {
+    uint32_t id;
+    uint16_t title[128];
+    uint16_t shortTitle[128];
+    uint16_t units[128];
+    int32_t stepCount;
+    double defaultNormalizedValue;
+    int32_t unitId;
+    int32_t flags;
+} Vst3ParameterInfo;
+#pragma pack(pop)
+
+void rane_vst3_sync_all_params_to_processor(RaneVst3Instance* inst) {
+    if (!inst || !inst->controller) return;
+    int32_t count = inst->controller->lpVtbl->getParameterCount(inst->controller);
+    for (int32_t i = 0; i < count; i++) {
+        Vst3ParameterInfo info;
+        memset(&info, 0, sizeof(info));
+        if (inst->controller->lpVtbl->getParameterInfo(inst->controller, i, &info) == 0) {
+            double val = inst->controller->lpVtbl->getParamNormalized(inst->controller, info.id);
+            vst3_push_param_change(inst, info.id, val, 0);
+        }
+    }
 }
 
 static int32_t vst3_ch_qi(void* thisPtr, const uint8_t* iid, void** obj) {
@@ -1036,10 +1102,20 @@ static int32_t vst3_ch_beginEdit(void* thisPtr, uint32_t id) { (void)thisPtr; (v
 static int32_t vst3_ch_performEdit(void* thisPtr, uint32_t id, double valueNormalized) {
     RaneVst3Instance* inst = (RaneVst3Instance*)thisPtr;
     vst3_push_param_change(inst, id, valueNormalized, 0);
+    if (inst->controllerIsSeparate && inst->controller) {
+        inst->controller->lpVtbl->setParamNormalized(inst->controller, id, valueNormalized);
+    }
     return 0;
 }
 static int32_t vst3_ch_endEdit(void* thisPtr, uint32_t id) { (void)thisPtr; (void)id; return 0; }
-static int32_t vst3_ch_restartComponent(void* thisPtr, int32_t flags) { (void)thisPtr; (void)flags; return 0; }
+static int32_t vst3_ch_restartComponent(void* thisPtr, int32_t flags) {
+    RaneVst3Instance* inst = (RaneVst3Instance*)thisPtr;
+    if (!inst) return 0;
+    if ((flags & ((1 << 0) | (1 << 2))) || flags == 0) {
+        rane_vst3_sync_all_params_to_processor(inst);
+    }
+    return 0;
+}
 
 static Vst3ComponentHandlerVtbl g_vst3ComponentHandlerVtbl = {
     vst3_ch_qi, vst3_host_ref, vst3_host_ref,
@@ -1117,6 +1193,8 @@ RaneVst3Instance* rane_vst3_load(const char* bundlePath, double sampleRate, int 
 
     RaneVst3Instance* inst = (RaneVst3Instance*)calloc(1, sizeof(RaneVst3Instance));
     inst->handlerVtbl = &g_vst3ComponentHandlerVtbl;
+    inst->plugFrame.lpVtbl = &g_vst3FrameVtbl;
+    inst->plugFrame.inst = inst;
     inst->bundle = bundle;
     inst->factory = factory;
     inst->component = comp;
@@ -1186,6 +1264,9 @@ RaneVst3Instance* rane_vst3_load(const char* bundlePath, double sampleRate, int 
     proc->lpVtbl->setupProcessing(proc, &setup);
     comp->lpVtbl->setActive(comp, 1);
     proc->lpVtbl->setProcessing(proc, 1);
+
+    // Initial parameter sync to audio processor queue
+    rane_vst3_sync_all_params_to_processor(inst);
 
     return inst;
 }
@@ -1262,14 +1343,27 @@ void rane_vst3_process(RaneVst3Instance* inst, const float* inL, const float* in
     Vst3ParamChangesBlock inParams;
     inParams.lpVtbl = &g_vst3ParamChangesVtbl;
     inParams.count = 0;
-    while (inst->paramReadIdx != inst->paramWriteIdx && inParams.count < MAX_VST3_PARAM_CHANGES) {
+    while (inst->paramReadIdx != inst->paramWriteIdx) {
         Vst3ParamChangeItem item = inst->paramRing[inst->paramReadIdx];
         inst->paramReadIdx = (inst->paramReadIdx + 1) % MAX_VST3_PARAM_CHANGES;
-        int32_t idx = inParams.count++;
-        inParams.queues[idx].lpVtbl = &g_vst3SingleParamQueueVtbl;
-        inParams.queues[idx].paramId = item.paramId;
-        inParams.queues[idx].sampleOffset = item.sampleOffset;
-        inParams.queues[idx].value = item.value;
+
+        int32_t found = -1;
+        for (int32_t k = 0; k < inParams.count; k++) {
+            if (inParams.queues[k].paramId == item.paramId) {
+                found = k;
+                break;
+            }
+        }
+        if (found >= 0) {
+            inParams.queues[found].sampleOffset = item.sampleOffset;
+            inParams.queues[found].value = item.value;
+        } else if (inParams.count < MAX_VST3_PARAM_CHANGES) {
+            int32_t idx = inParams.count++;
+            inParams.queues[idx].lpVtbl = &g_vst3SingleParamQueueVtbl;
+            inParams.queues[idx].paramId = item.paramId;
+            inParams.queues[idx].sampleOffset = item.sampleOffset;
+            inParams.queues[idx].value = item.value;
+        }
     }
 
     Vst3ParamChangesBlock outParams;
@@ -1324,6 +1418,14 @@ void rane_vst3_process(RaneVst3Instance* inst, const float* inL, const float* in
     data.processContext = &ctx;
 
     inst->processor->lpVtbl->process(inst->processor, &data);
+
+    if (inst->controller && outParams.count > 0) {
+        for (int32_t i = 0; i < outParams.count; i++) {
+            uint32_t pid = outParams.queues[i].paramId;
+            double pval = outParams.queues[i].value;
+            inst->controller->lpVtbl->setParamNormalized(inst->controller, pid, pval);
+        }
+    }
 }
 
 bool rane_vst3_get_editor_rect(RaneVst3Instance* inst, int* outW, int* outH) {
@@ -1354,12 +1456,33 @@ bool rane_vst3_open_editor(RaneVst3Instance* inst, void* nsViewPtr) {
     if (inst->activeView->lpVtbl->isPlatformTypeSupported(inst->activeView, "NSView") != 0) {
         return false;
     }
-    inst->activeView->lpVtbl->setFrame(inst->activeView, &g_vst3PlugFrame);
-    return (inst->activeView->lpVtbl->attached(inst->activeView, nsViewPtr, "NSView") == 0);
+    inst->activeView->lpVtbl->setFrame(inst->activeView, &inst->plugFrame);
+    if (inst->activeView->lpVtbl->attached(inst->activeView, nsViewPtr, "NSView") == 0) {
+        inst->activeView->lpVtbl->onFocus(inst->activeView, 1);
+        return true;
+    }
+    return false;
+}
+
+void rane_vst3_set_focus(RaneVst3Instance* inst, bool hasFocus) {
+    if (!inst || !inst->activeView) return;
+    inst->activeView->lpVtbl->onFocus(inst->activeView, hasFocus ? 1 : 0);
+}
+
+bool rane_vst3_check_can_resize(RaneVst3Instance* inst) {
+    if (!inst || !inst->activeView) return false;
+    return (inst->activeView->lpVtbl->canResize(inst->activeView) == 0);
+}
+
+void rane_vst3_set_resize_callback(RaneVst3Instance* inst, RaneVstResizeCallback cb, void* context) {
+    if (!inst) return;
+    inst->resizeCallback = cb;
+    inst->resizeContext = context;
 }
 
 void rane_vst3_close_editor(RaneVst3Instance* inst) {
     if (!inst || !inst->activeView) return;
+    inst->activeView->lpVtbl->onFocus(inst->activeView, 0);
     inst->activeView->lpVtbl->removed(inst->activeView);
     inst->activeView->lpVtbl->setFrame(inst->activeView, NULL);
     inst->activeView->lpVtbl->release(inst->activeView);

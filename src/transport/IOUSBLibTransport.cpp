@@ -6,12 +6,19 @@
 
 #include <CoreAudio/AudioHardware.h>
 #include <mach/mach_time.h>
+#include <mach/mach_init.h>
+#include <mach/thread_policy.h>
+#include <mach/thread_act.h>
 #include <os/log.h>
 #include <sys/time.h>
 #include <unistd.h>
 #include <cmath>
 
 #define RLOG(fmt, ...) os_log(OS_LOG_DEFAULT, "[RaneTransport] " fmt, ##__VA_ARGS__)
+
+static void SetThreadHighPriority() {
+    pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+}
 
 IOUSBLibTransport& IOUSBLibTransport::shared() {
     static IOUSBLibTransport sShared;
@@ -76,7 +83,7 @@ void* IOUSBLibTransport::monitorEntry(void* arg) {
 void IOUSBLibTransport::monitorLoop() {
     RLOG("[Watchdog] Hardware watchdog monitor loop started.");
     while (!mMonitorShutdown.load()) {
-        usleep(500000);
+        usleep(1000000);
         if (mMonitorShutdown.load()) break;
 
         if (!mDeviceOpen.load()) {
@@ -94,56 +101,60 @@ static const char* getUSBDeviceClassName() {
 }
 
 bool IOUSBLibTransport::findDevice(uint16_t *outVid, uint16_t *outPid) {
-    CFMutableDictionaryRef matchingDict = IOServiceMatching(getUSBDeviceClassName());
-    if (!matchingDict) return false;
+    const char* classNames[] = { "IOUSBDevice", "IOUSBHostDevice" };
+    for (const char* cls : classNames) {
+        CFMutableDictionaryRef matchingDict = IOServiceMatching(cls);
+        if (!matchingDict) continue;
 
-    io_iterator_t iter = IO_OBJECT_NULL;
-    if (IOServiceGetMatchingServices(kIOMainPortDefault, matchingDict, &iter) != kIOReturnSuccess) {
-        return false;
-    }
-
-    bool found = false;
-    io_service_t deviceService = IO_OBJECT_NULL;
-
-    while ((deviceService = IOIteratorNext(iter)) != IO_OBJECT_NULL) {
-        IOCFPlugInInterface** plugIn = nullptr;
-        SInt32 score = 0;
-        IOReturn kr = IOCreatePlugInInterfaceForService(
-            deviceService, kIOUSBDeviceUserClientTypeID,
-            kIOCFPlugInInterfaceID, &plugIn, &score);
-
-        if (kr == kIOReturnSuccess && plugIn) {
-            IOUSBDeviceInterface942** dev = nullptr;
-            HRESULT res = (*plugIn)->QueryInterface(
-                plugIn, CFUUIDGetUUIDBytes(kIOUSBDeviceInterfaceID942), (LPVOID*)&dev);
-            (*plugIn)->Release(plugIn);
-
-            if (res == S_OK && dev) {
-                UInt16 vendor = 0, product = 0;
-                (*dev)->GetDeviceVendor(dev, &vendor);
-                (*dev)->GetDeviceProduct(dev, &product);
-
-                const RaneDeviceInfo* info = rane_lookup_device(vendor, product);
-                if (info) {
-                    mCurrentVID = vendor;
-                    mCurrentPID = product;
-                    if (outVid) *outVid = vendor;
-                    if (outPid) *outPid = product;
-                    found = true;
-                    RLOG("Found Rane Device: %s (VID: 0x%04X, PID: 0x%04X)", info->displayName, vendor, product);
-                }
-                (*dev)->Release(dev);
-            }
+        io_iterator_t iter = IO_OBJECT_NULL;
+        if (IOServiceGetMatchingServices(kIOMainPortDefault, matchingDict, &iter) != kIOReturnSuccess) {
+            continue;
         }
-        IOObjectRelease(deviceService);
-        if (found) break;
-    }
 
-    IOObjectRelease(iter);
-    return found;
+        bool found = false;
+        io_service_t deviceService = IO_OBJECT_NULL;
+
+        while ((deviceService = IOIteratorNext(iter)) != IO_OBJECT_NULL) {
+            CFTypeRef vRef = IORegistryEntryCreateCFProperty(deviceService, CFSTR(kUSBVendorID), kCFAllocatorDefault, 0);
+            CFTypeRef pRef = IORegistryEntryCreateCFProperty(deviceService, CFSTR(kUSBProductID), kCFAllocatorDefault, 0);
+
+            if (vRef && pRef &&
+                CFGetTypeID(vRef) == CFNumberGetTypeID() &&
+                CFGetTypeID(pRef) == CFNumberGetTypeID()) {
+                SInt32 vNum = 0, pNum = 0;
+                CFNumberGetValue((CFNumberRef)vRef, kCFNumberSInt32Type, &vNum);
+                CFNumberGetValue((CFNumberRef)pRef, kCFNumberSInt32Type, &pNum);
+
+                const RaneDeviceInfo* info = rane_lookup_device((uint16_t)vNum, (uint16_t)pNum);
+                if (info) {
+                    mCurrentVID = (uint16_t)vNum;
+                    mCurrentPID = (uint16_t)pNum;
+                    if (outVid) *outVid = (uint16_t)vNum;
+                    if (outPid) *outPid = (uint16_t)pNum;
+                    found = true;
+                    RLOG("Found Rane Device: %s (VID: 0x%04X, PID: 0x%04X)", info->displayName, (uint16_t)vNum, (uint16_t)pNum);
+                }
+            }
+            if (vRef) CFRelease(vRef);
+            if (pRef) CFRelease(pRef);
+            IOObjectRelease(deviceService);
+            if (found) break;
+        }
+
+        IOObjectRelease(iter);
+        if (found) return true;
+    }
+    return false;
 }
 
 bool IOUSBLibTransport::openDevice() {
+    if (mDeviceOpen.load()) return true;
+
+    std::unique_lock<std::mutex> lock(mDeviceStateMutex, std::try_to_lock);
+    if (!lock.owns_lock()) {
+        RLOG("[openDevice] Device open already in progress, skipping duplicate request.");
+        return false;
+    }
     if (mDeviceOpen.load()) return true;
 
     uint16_t vid = 0, pid = 0;
@@ -209,7 +220,13 @@ bool IOUSBLibTransport::openDevice() {
 
     if (!openInterfaces()) {
         printf("[openDevice] openInterfaces failed.\n");
-        closeDevice();
+        teardownInterfaces();
+        if (mDevice) {
+            (*mDevice)->USBDeviceClose(mDevice);
+            (*mDevice)->Release(mDevice);
+            mDevice = nullptr;
+        }
+        mDeviceOpen.store(false);
         return false;
     }
 
@@ -484,6 +501,8 @@ bool IOUSBLibTransport::findPipeRef(IOUSBInterfaceInterface942** intf, uint8_t e
 }
 
 void IOUSBLibTransport::closeDevice() {
+    std::lock_guard<std::mutex> lock(mDeviceStateMutex);
+    if (!mDeviceOpen.load() && !mDevice) return;
     stopStreaming();
     if (mHIDDevice) {
         // Send Audio Engine Mute (Opcode 0x53, 4 bytes)
@@ -636,6 +655,7 @@ void* IOUSBLibTransport::workerEntry(void* arg) {
 }
 
 void IOUSBLibTransport::workerLoop() {
+    SetThreadHighPriority();
     mWorkerLoop = CFRunLoopGetCurrent();
     for (uint32_t i = 0; i < mNumIntf; i++) {
         if (mIntf[i]) {

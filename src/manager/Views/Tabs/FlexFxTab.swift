@@ -6,6 +6,7 @@ import Cocoa
 extension MainWindowController {
     // MARK: - FlexFX UI State & References
     struct FlexFxUiReferences {
+        var channelSegmentedControl: NSSegmentedControl!
         var modulePowerSwitch: NSSwitch!
         var moduleStatusBadge: NSTextField!
         var midiLearnToggleButton: NSButton!
@@ -21,15 +22,13 @@ extension MainWindowController {
         var tempoBadge: NSTextField!
         var linkButton: NSButton!
 
-        // Left Column: USB RECORD Ch 1–12
-        var usbRecordPopup: NSPopUpButton!
-        var usbRecordChannelBadge: NSTextField!
-        var usbRecordMeterFill: NSLayoutConstraint!
-
-        // Right Column: USB PLAYBACK Ch 1–10
-        var usbPlaybackPopup: NSPopUpButton!
-        var usbPlaybackChannelBadge: NSTextField!
-        var prePostButton: NSButton!
+        // Left / Right Record / Playback Columns (Removed in 5-channel direct DAW architecture)
+        var usbRecordPopup: NSPopUpButton?
+        var usbRecordChannelBadge: NSTextField?
+        var usbRecordMeterFill: NSLayoutConstraint?
+        var usbPlaybackPopup: NSPopUpButton?
+        var usbPlaybackChannelBadge: NSTextField?
+        var prePostButton: NSButton?
 
         // 6 Gain Faders (3x Pre-Gain + 3x Post-Gain)
         var fx1PreGainSlider: NSSlider!
@@ -62,7 +61,8 @@ extension MainWindowController {
         var vstMidiClockCheckboxes: [Int: NSButton] = [:]
         var vstMidiStatusLabels: [Int: NSTextField] = [:]
 
-        // Interactive MIDI Learn Badges for all matrix controls
+        // Interactive MIDI Learn Badges (Per-Channel & Global)
+        var channelMidiLearnButtons: [ChannelControlType: NSButton] = [:]
         var midiLearnButtons: [FlexFxMidiTarget: NSButton] = [:]
 
         var rescanPluginsButton: NSButton!
@@ -78,6 +78,7 @@ extension MainWindowController {
         Self.flexFxRefs.vstMidiChannelPopups.removeAll()
         Self.flexFxRefs.vstMidiClockCheckboxes.removeAll()
         Self.flexFxRefs.vstMidiStatusLabels.removeAll()
+        Self.flexFxRefs.channelMidiLearnButtons.removeAll()
         Self.flexFxRefs.midiLearnButtons.removeAll()
 
         let page = NSStackView()
@@ -177,6 +178,26 @@ extension MainWindowController {
 
         sec1Outer.addArrangedSubview(topBar)
         topBar.widthAnchor.constraint(equalTo: sec1Outer.widthAnchor).isActive = true
+
+        // =========================================================================
+        // CHANNEL STRIP SELECTOR: PGM 1 (Deck 1) .. PGM 4 (Deck 4) & FLEXFX RETURN
+        // =========================================================================
+        let chSegment = NSSegmentedControl(labels: [
+            "🎛️ PGM 1 (Deck 1)",
+            "🎛️ PGM 2 (Deck 2)",
+            "🎛️ PGM 3 (Deck 3)",
+            "🎛️ PGM 4 (Deck 4)",
+            "🔁 FlexFX (Return)"
+        ], trackingMode: .selectOne, target: self, action: #selector(onChannelStripSelected(_:)))
+        chSegment.selectedSegment = RaneFlexFxService.shared.selectedChannelIndex
+        chSegment.segmentDistribution = .fillEqually
+        chSegment.controlSize = .regular
+        chSegment.font = NSFont.systemFont(ofSize: 11, weight: .bold)
+        chSegment.translatesAutoresizingMaskIntoConstraints = false
+        chSegment.heightAnchor.constraint(equalToConstant: 28).isActive = true
+        sec1Outer.addArrangedSubview(chSegment)
+        chSegment.widthAnchor.constraint(equalTo: sec1Outer.widthAnchor).isActive = true
+        Self.flexFxRefs.channelSegmentedControl = chSegment
 
         let fxCardStack = NSStackView()
         fxCardStack.orientation = .vertical
@@ -447,7 +468,7 @@ extension MainWindowController {
         headerBar.spacing = 10
         headerBar.translatesAutoresizingMaskIntoConstraints = false
 
-        let flowTitle = NSTextField(labelWithString: "AUDIO SIGNALFLUSS & MIDI STEUERUNG (3 PARALLELE STEREO-BUSSE)")
+        let flowTitle = NSTextField(labelWithString: "AUDIO SIGNALFLUSS & MIDI STEUERUNG (VST-EFFEKT + DRY-SIGNAL)")
         flowTitle.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .bold)
         flowTitle.textColor = NSColor(red: 0.95, green: 0.78, blue: 0.25, alpha: 1.0)
         headerBar.addArrangedSubview(flowTitle)
@@ -456,7 +477,7 @@ extension MainWindowController {
         hSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         headerBar.addArrangedSubview(hSpacer)
 
-        let hintLbl = NSTextField(labelWithString: "Alle 3 Pfade werden parallel berechnet und auf das gewählte USB-Playback Stereo-Paar summiert")
+        let hintLbl = NSTextField(labelWithString: "DAW-Signal wird direkt verarbeitet und latenzfrei auf den Mixer ausgegeben")
         hintLbl.font = NSFont.systemFont(ofSize: 10, weight: .regular)
         hintLbl.textColor = NSColor(white: 0.60, alpha: 1.0)
         headerBar.addArrangedSubview(hintLbl)
@@ -464,24 +485,7 @@ extension MainWindowController {
         outer.addArrangedSubview(headerBar)
         headerBar.widthAnchor.constraint(equalTo: outer.widthAnchor).isActive = true
 
-        // Main Horizontal Signal-Flow Columns:
-        // [Col 1: USB RECORD Ch 1–12] -> [Col 2: 3 Parallel Bus Rows (Pre-Gain -> VST1/VST2/Dry -> Post-Gain)] -> [Col 3: USB PLAYBACK Ch 1–10]
-        let matrixRow = NSStackView()
-        matrixRow.orientation = .horizontal
-        matrixRow.alignment = .centerY
-        matrixRow.distribution = .fill
-        matrixRow.spacing = 8
-        matrixRow.translatesAutoresizingMaskIntoConstraints = false
-
-        // COLUMN 1: USB RECORD Ch 1–12 (STEREO INPUT SELECTOR)
-        let inputCol = createUsbRecordColumn()
-        matrixRow.addArrangedSubview(inputCol)
-
-        // Splitter Arrow 1
-        let splitArrowLeft = createSignalConnectorView(symbol: "┣►")
-        matrixRow.addArrangedSubview(splitArrowLeft)
-
-        // COLUMN 2: 3 PARALLEL SIGNAL PATHS (VST 1, VST 2, DRY)
+        // 2 Signal Paths: PATH 1 (Dedicated VST Slot) + PATH 2 (Dry Pass-Through)
         let busesStack = NSStackView()
         busesStack.orientation = .vertical
         busesStack.alignment = .leading
@@ -489,14 +493,14 @@ extension MainWindowController {
         busesStack.translatesAutoresizingMaskIntoConstraints = false
         busesStack.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
-        // PATH 1 (Top): Pre-Gain 1 -> VST Effekt 1 (Slot 0) -> Post-Gain 1
+        // PATH 1: Pre-Gain -> VST Effekt (Kanal-Slot 0..4) -> Post-Gain
         let bus1Row = createVstParallelBusRow(
             slotIndex: 0,
-            title: "VST EFFEKT 1",
+            title: "VST EFFEKT",
             accentColor: NSColor(red: 1.0, green: 0.78, blue: 0.15, alpha: 1.0),
-            preGainTarget: .fx1PreGain,
-            toggleTarget: .vst1Toggle,
-            postGainTarget: .fx1PostGain,
+            preControl: .slot1PreGain,
+            toggleControl: .slot1Toggle,
+            postControl: .slot1PostGain,
             preSliderAction: #selector(onFx1PreGainChanged(_:)),
             toggleAction: #selector(onVst1ToggleClicked(_:)),
             postSliderAction: #selector(onFx1PostGainChanged(_:))
@@ -504,249 +508,15 @@ extension MainWindowController {
         busesStack.addArrangedSubview(bus1Row)
         bus1Row.widthAnchor.constraint(equalTo: busesStack.widthAnchor).isActive = true
 
-        // PATH 2 (Middle): Pre-Gain 2 -> VST Effekt 2 (Slot 1) -> Post-Gain 2
-        let bus2Row = createVstParallelBusRow(
-            slotIndex: 1,
-            title: "VST EFFEKT 2",
-            accentColor: NSColor(red: 0.20, green: 0.85, blue: 0.95, alpha: 1.0),
-            preGainTarget: .fx2PreGain,
-            toggleTarget: .vst2Toggle,
-            postGainTarget: .fx2PostGain,
-            preSliderAction: #selector(onFx2PreGainChanged(_:)),
-            toggleAction: #selector(onVst2ToggleClicked(_:)),
-            postSliderAction: #selector(onFx2PostGainChanged(_:))
-        )
+        // PATH 2: Dry Pre-Gain -> Direct Pass-Through Line + Ducking -> Dry Post-Gain
+        let bus2Row = createDryParallelBusRow()
         busesStack.addArrangedSubview(bus2Row)
         bus2Row.widthAnchor.constraint(equalTo: busesStack.widthAnchor).isActive = true
 
-        // PATH 3 (Bottom): Dry Pre-Gain -> Direct Pass-Through Line -> Dry Post-Gain
-        let bus3Row = createDryParallelBusRow()
-        busesStack.addArrangedSubview(bus3Row)
-        bus3Row.widthAnchor.constraint(equalTo: busesStack.widthAnchor).isActive = true
-
-        matrixRow.addArrangedSubview(busesStack)
-
-        // Summing Arrow Right
-        let sumArrowRight = createSignalConnectorView(symbol: "►┫")
-        matrixRow.addArrangedSubview(sumArrowRight)
-
-        // COLUMN 3: USB PLAYBACK Ch 1–10 (STEREO OUTPUT SELECTOR)
-        let outputCol = createUsbPlaybackColumn()
-        matrixRow.addArrangedSubview(outputCol)
-
-        outer.addArrangedSubview(matrixRow)
-        matrixRow.widthAnchor.constraint(equalTo: outer.widthAnchor).isActive = true
+        outer.addArrangedSubview(busesStack)
+        busesStack.widthAnchor.constraint(equalTo: outer.widthAnchor).isActive = true
 
         return outer
-    }
-
-    // MARK: - Left Column: USB RECORD Ch 1–12 (Stereo Input Selector + Knob/MIDI)
-    private func createUsbRecordColumn() -> NSView {
-        let col = NSStackView()
-        col.orientation = .vertical
-        col.alignment = .centerX
-        col.spacing = 6
-        col.translatesAutoresizingMaskIntoConstraints = false
-
-        let header = NSTextField(labelWithString: "USB RECORD")
-        header.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .black)
-        header.textColor = NSColor.systemTeal
-        col.addArrangedSubview(header)
-
-        let subHeader = NSTextField(labelWithString: "Ch 1–12 (Stereo-Paar)")
-        subHeader.font = NSFont.monospacedSystemFont(ofSize: 9, weight: .semibold)
-        subHeader.textColor = NSColor(white: 0.70, alpha: 1.0)
-        col.addArrangedSubview(subHeader)
-
-        // Active Channel Pair Badge
-        let chBadge = NSTextField(labelWithString: "Ch 9–10")
-        chBadge.font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .black)
-        chBadge.alignment = .center
-        chBadge.textColor = NSColor.white
-        chBadge.wantsLayer = true
-        chBadge.layer?.cornerRadius = 5
-        chBadge.layer?.backgroundColor = NSColor.systemTeal.withAlphaComponent(0.22).cgColor
-        chBadge.layer?.borderColor = NSColor.systemTeal.withAlphaComponent(0.75).cgColor
-        chBadge.layer?.borderWidth = 1.0
-        chBadge.translatesAutoresizingMaskIntoConstraints = false
-        chBadge.widthAnchor.constraint(equalToConstant: 128).isActive = true
-        col.addArrangedSubview(chBadge)
-        Self.flexFxRefs.usbRecordChannelBadge = chBadge
-
-        // Dropdown Popup in ascending channel order (Ch 1–2 ... Ch 11–12)
-        let inPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-        inPopup.controlSize = .small
-        inPopup.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
-        for src in FlexFxInputSource.orderedByChannel {
-            inPopup.addItem(withTitle: src.displayName)
-            inPopup.lastItem?.tag = src.rawValue
-        }
-        inPopup.selectItem(withTag: RaneFlexFxService.shared.inputSource.rawValue)
-        inPopup.target = self
-        inPopup.action = #selector(onAudioInputSelected(_:))
-        inPopup.translatesAutoresizingMaskIntoConstraints = false
-        inPopup.widthAnchor.constraint(equalToConstant: 132).isActive = true
-        col.addArrangedSubview(inPopup)
-        Self.flexFxRefs.usbRecordPopup = inPopup
-
-        // Step < / > Buttons (like turning the selector knob)
-        let stepRow = NSStackView()
-        stepRow.orientation = .horizontal
-        stepRow.spacing = 6
-
-        let prevBtn = NSButton(title: "◀ Paar", target: self, action: #selector(onPrevInputSourceClicked))
-        prevBtn.bezelStyle = .inline
-        prevBtn.font = NSFont.systemFont(ofSize: 9, weight: .bold)
-        prevBtn.wantsLayer = true
-        prevBtn.layer?.cornerRadius = 4
-        prevBtn.layer?.backgroundColor = NSColor(white: 0.22, alpha: 0.8).cgColor
-        prevBtn.contentTintColor = .white
-        stepRow.addArrangedSubview(prevBtn)
-
-        let nextBtn = NSButton(title: "Paar ▶", target: self, action: #selector(onNextInputSourceClicked))
-        nextBtn.bezelStyle = .inline
-        nextBtn.font = NSFont.systemFont(ofSize: 9, weight: .bold)
-        nextBtn.wantsLayer = true
-        nextBtn.layer?.cornerRadius = 4
-        nextBtn.layer?.backgroundColor = NSColor(white: 0.22, alpha: 0.8).cgColor
-        nextBtn.contentTintColor = .white
-        stepRow.addArrangedSubview(nextBtn)
-
-        col.addArrangedSubview(stepRow)
-
-        let divider = createDivider()
-        col.addArrangedSubview(divider)
-        divider.widthAnchor.constraint(equalToConstant: 120).isActive = true
-
-        let midiTitle = NSTextField(labelWithString: "MIDI: KNOB / SELECT")
-        midiTitle.font = NSFont.monospacedSystemFont(ofSize: 8.5, weight: .bold)
-        midiTitle.textColor = NSColor(white: 0.60, alpha: 1.0)
-        col.addArrangedSubview(midiTitle)
-
-        let learnBtn = createMidiLearnBadgeButton(for: .usbRecordKnob, compact: false)
-        col.addArrangedSubview(learnBtn)
-
-        let card = col.wrapInCard(
-            cornerRadius: 8,
-            borderColor: NSColor.systemTeal.withAlphaComponent(0.45),
-            fillColor: NSColor(red: 0.09, green: 0.11, blue: 0.14, alpha: 1.0),
-            padding: NSEdgeInsets(top: 10, left: 8, bottom: 10, right: 8)
-        )
-        card.translatesAutoresizingMaskIntoConstraints = false
-        card.widthAnchor.constraint(equalToConstant: 148).isActive = true
-        card.heightAnchor.constraint(greaterThanOrEqualToConstant: 230).isActive = true
-        return card
-    }
-
-    // MARK: - Right Column: USB PLAYBACK Ch 1–10 (Stereo Output Selector + Knob/MIDI)
-    private func createUsbPlaybackColumn() -> NSView {
-        let col = NSStackView()
-        col.orientation = .vertical
-        col.alignment = .centerX
-        col.spacing = 6
-        col.translatesAutoresizingMaskIntoConstraints = false
-
-        let header = NSTextField(labelWithString: "USB PLAYBACK")
-        header.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .black)
-        header.textColor = NSColor.systemGreen
-        col.addArrangedSubview(header)
-
-        let subHeader = NSTextField(labelWithString: "Ch 1–10 (Stereo-Paar)")
-        subHeader.font = NSFont.monospacedSystemFont(ofSize: 9, weight: .semibold)
-        subHeader.textColor = NSColor(white: 0.70, alpha: 1.0)
-        col.addArrangedSubview(subHeader)
-
-        // Active Output Channel Pair Badge
-        let chBadge = NSTextField(labelWithString: "Ch 9–10")
-        chBadge.font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .black)
-        chBadge.alignment = .center
-        chBadge.textColor = NSColor.white
-        chBadge.wantsLayer = true
-        chBadge.layer?.cornerRadius = 5
-        chBadge.layer?.backgroundColor = NSColor.systemGreen.withAlphaComponent(0.22).cgColor
-        chBadge.layer?.borderColor = NSColor.systemGreen.withAlphaComponent(0.75).cgColor
-        chBadge.layer?.borderWidth = 1.0
-        chBadge.translatesAutoresizingMaskIntoConstraints = false
-        chBadge.widthAnchor.constraint(equalToConstant: 128).isActive = true
-        col.addArrangedSubview(chBadge)
-        Self.flexFxRefs.usbPlaybackChannelBadge = chBadge
-
-        // Dropdown Popup in ascending channel order (Ch 1–2 ... Ch 9–10)
-        let outPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-        outPopup.controlSize = .small
-        outPopup.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
-        for dst in FlexFxOutputDestination.orderedByChannel {
-            outPopup.addItem(withTitle: dst.displayName)
-            outPopup.lastItem?.tag = dst.rawValue
-        }
-        outPopup.selectItem(withTag: RaneFlexFxService.shared.outputDestination.rawValue)
-        outPopup.target = self
-        outPopup.action = #selector(onAudioOutputSelected(_:))
-        outPopup.translatesAutoresizingMaskIntoConstraints = false
-        outPopup.widthAnchor.constraint(equalToConstant: 132).isActive = true
-        col.addArrangedSubview(outPopup)
-        Self.flexFxRefs.usbPlaybackPopup = outPopup
-
-        // Step < / > Buttons
-        let stepRow = NSStackView()
-        stepRow.orientation = .horizontal
-        stepRow.spacing = 6
-
-        let prevBtn = NSButton(title: "◀ Paar", target: self, action: #selector(onPrevOutputDestClicked))
-        prevBtn.bezelStyle = .inline
-        prevBtn.font = NSFont.systemFont(ofSize: 9, weight: .bold)
-        prevBtn.wantsLayer = true
-        prevBtn.layer?.cornerRadius = 4
-        prevBtn.layer?.backgroundColor = NSColor(white: 0.22, alpha: 0.8).cgColor
-        prevBtn.contentTintColor = .white
-        stepRow.addArrangedSubview(prevBtn)
-
-        let nextBtn = NSButton(title: "Paar ▶", target: self, action: #selector(onNextOutputDestClicked))
-        nextBtn.bezelStyle = .inline
-        nextBtn.font = NSFont.systemFont(ofSize: 9, weight: .bold)
-        nextBtn.wantsLayer = true
-        nextBtn.layer?.cornerRadius = 4
-        nextBtn.layer?.backgroundColor = NSColor(white: 0.22, alpha: 0.8).cgColor
-        nextBtn.contentTintColor = .white
-        stepRow.addArrangedSubview(nextBtn)
-
-        col.addArrangedSubview(stepRow)
-
-        // Tail Mode Button (Post-Fader Tail vs Pre-Fader Hard Cut)
-        let ppBtn = NSButton(title: "POST-FADER (Tail)", target: self, action: #selector(onPrePostToggled))
-        ppBtn.bezelStyle = .inline
-        ppBtn.font = NSFont.systemFont(ofSize: 9, weight: .bold)
-        ppBtn.wantsLayer = true
-        ppBtn.layer?.cornerRadius = 4
-        ppBtn.layer?.borderWidth = 1.0
-        ppBtn.translatesAutoresizingMaskIntoConstraints = false
-        ppBtn.widthAnchor.constraint(equalToConstant: 128).isActive = true
-        ppBtn.heightAnchor.constraint(equalToConstant: 20).isActive = true
-        col.addArrangedSubview(ppBtn)
-        Self.flexFxRefs.prePostButton = ppBtn
-
-        let divider = createDivider()
-        col.addArrangedSubview(divider)
-        divider.widthAnchor.constraint(equalToConstant: 120).isActive = true
-
-        let midiTitle = NSTextField(labelWithString: "MIDI: KNOB / SELECT")
-        midiTitle.font = NSFont.monospacedSystemFont(ofSize: 8.5, weight: .bold)
-        midiTitle.textColor = NSColor(white: 0.60, alpha: 1.0)
-        col.addArrangedSubview(midiTitle)
-
-        let learnBtn = createMidiLearnBadgeButton(for: .usbPlaybackKnob, compact: false)
-        col.addArrangedSubview(learnBtn)
-
-        let card = col.wrapInCard(
-            cornerRadius: 8,
-            borderColor: NSColor.systemGreen.withAlphaComponent(0.45),
-            fillColor: NSColor(red: 0.09, green: 0.13, blue: 0.11, alpha: 1.0),
-            padding: NSEdgeInsets(top: 10, left: 8, bottom: 10, right: 8)
-        )
-        card.translatesAutoresizingMaskIntoConstraints = false
-        card.widthAnchor.constraint(equalToConstant: 148).isActive = true
-        card.heightAnchor.constraint(greaterThanOrEqualToConstant: 230).isActive = true
-        return card
     }
 
     // MARK: - Parallel VST Bus Row (Pre-Gain -> VST Effect + MIDI Routing -> Post-Gain)
@@ -754,9 +524,9 @@ extension MainWindowController {
         slotIndex: Int,
         title: String,
         accentColor: NSColor,
-        preGainTarget: FlexFxMidiTarget,
-        toggleTarget: FlexFxMidiTarget,
-        postGainTarget: FlexFxMidiTarget,
+        preControl: ChannelControlType,
+        toggleControl: ChannelControlType,
+        postControl: ChannelControlType,
         preSliderAction: Selector,
         toggleAction: Selector,
         postSliderAction: Selector
@@ -770,18 +540,13 @@ extension MainWindowController {
 
         // 1. PRE-GAIN FADER MODULE (Left)
         let preBox = createGainFaderBox(
-            label: "PRE-GAIN \(slotIndex + 1)",
-            initialGain: slotIndex == 0 ? RaneFlexFxService.shared.fx1PreGain : RaneFlexFxService.shared.fx2PreGain,
-            midiTarget: preGainTarget,
+            label: "PRE-GAIN",
+            initialGain: RaneFlexFxService.shared.fx1PreGain,
+            channelControl: preControl,
             action: preSliderAction,
             sliderOut: { slider, badge in
-                if slotIndex == 0 {
-                    Self.flexFxRefs.fx1PreGainSlider = slider
-                    Self.flexFxRefs.fx1PreGainBadge = badge
-                } else {
-                    Self.flexFxRefs.fx2PreGainSlider = slider
-                    Self.flexFxRefs.fx2PreGainBadge = badge
-                }
+                Self.flexFxRefs.fx1PreGainSlider = slider
+                Self.flexFxRefs.fx1PreGainBadge = badge
             }
         )
         row.addArrangedSubview(preBox)
@@ -814,23 +579,23 @@ extension MainWindowController {
         onOffBtn.layer?.borderWidth = 1.4
         onOffBtn.font = NSFont.systemFont(ofSize: 11, weight: .black)
         onOffBtn.tag = slotIndex
-        onOffBtn.toolTip = "Linksklick: \(title) EIN/AUS • Rechtsklick: DaisySP Parameter"
+        onOffBtn.toolTip = "Linksklick: \(title) EIN/AUS • Rechtsklick: VST Editor öffnen"
         onOffBtn.translatesAutoresizingMaskIntoConstraints = false
         onOffBtn.widthAnchor.constraint(equalToConstant: 128).isActive = true
         onOffBtn.heightAnchor.constraint(equalToConstant: 26).isActive = true
-        onOffBtn.onRightClick = { [weak self, weak onOffBtn] in
-            guard let self = self, let btn = onOffBtn else { return }
-            let slot = RanePluginHostService.shared.slots[slotIndex]
-            if slot.isCustomPlugin {
-                RanePluginHostService.shared.openPluginUI(for: slotIndex)
-            } else {
-                self.showEffectDetailPopover(for: slot.defaultType, relativeTo: btn)
+        onOffBtn.onRightClick = { [weak self] in
+            guard self != nil else { return }
+            let s = RaneFlexFxService.shared
+            let actSlotIdx = s.activeChannel.slotIndex
+            let slot = RanePluginHostService.shared.slots[actSlotIdx]
+            if slot.isCustomPlugin && slot.isLoaded {
+                RanePluginHostService.shared.openPluginUI(for: actSlotIdx)
             }
         }
         topRow.addArrangedSubview(onOffBtn)
         Self.flexFxRefs.vstToggleButtons[slotIndex] = onOffBtn
 
-        let toggleLearnBtn = createMidiLearnBadgeButton(for: toggleTarget, compact: true)
+        let toggleLearnBtn = createChannelMidiLearnBadgeButton(for: toggleControl, compact: true)
         topRow.addArrangedSubview(toggleLearnBtn)
 
         // Plugin Selector Dropdown
@@ -944,18 +709,13 @@ extension MainWindowController {
 
         // 3. POST-GAIN FADER MODULE (Right)
         let postBox = createGainFaderBox(
-            label: "POST-GAIN \(slotIndex + 1)",
-            initialGain: slotIndex == 0 ? RaneFlexFxService.shared.fx1PostGain : RaneFlexFxService.shared.fx2PostGain,
-            midiTarget: postGainTarget,
+            label: "POST-GAIN",
+            initialGain: RaneFlexFxService.shared.fx1PostGain,
+            channelControl: postControl,
             action: postSliderAction,
             sliderOut: { slider, badge in
-                if slotIndex == 0 {
-                    Self.flexFxRefs.fx1PostGainSlider = slider
-                    Self.flexFxRefs.fx1PostGainBadge = badge
-                } else {
-                    Self.flexFxRefs.fx2PostGainSlider = slider
-                    Self.flexFxRefs.fx2PostGainBadge = badge
-                }
+                Self.flexFxRefs.fx1PostGainSlider = slider
+                Self.flexFxRefs.fx1PostGainBadge = badge
             }
         )
         row.addArrangedSubview(postBox)
@@ -978,7 +738,7 @@ extension MainWindowController {
         let preBox = createGainFaderBox(
             label: "DRY PRE-GAIN",
             initialGain: RaneFlexFxService.shared.dryPreGain,
-            midiTarget: .dryPreGain,
+            channelControl: .dryPreGain,
             action: #selector(onDryPreGainChanged(_:)),
             sliderOut: { slider, badge in
                 Self.flexFxRefs.dryPreGainSlider = slider
@@ -1053,19 +813,19 @@ extension MainWindowController {
         duckHeader.textColor = NSColor(white: 0.72, alpha: 1.0)
         duckRow.addArrangedSubview(duckHeader)
 
-        // VST 1 Ducking Ratio (0% .. 100%)
-        let vst1DuckLbl = NSTextField(labelWithString: "VST 1:")
-        vst1DuckLbl.font = NSFont.monospacedSystemFont(ofSize: 9, weight: .bold)
-        vst1DuckLbl.textColor = NSColor(red: 1.0, green: 0.78, blue: 0.15, alpha: 1.0)
-        duckRow.addArrangedSubview(vst1DuckLbl)
+        // VST Ducking Ratio (0% .. 100%)
+        let vstDuckLbl = NSTextField(labelWithString: "VST Ducking:")
+        vstDuckLbl.font = NSFont.monospacedSystemFont(ofSize: 9, weight: .bold)
+        vstDuckLbl.textColor = NSColor(red: 1.0, green: 0.78, blue: 0.15, alpha: 1.0)
+        duckRow.addArrangedSubview(vstDuckLbl)
 
         let initDuck1 = RaneFlexFxService.shared.fx1DryDuckRatio * 100.0
         let duck1Slider = RaneResettableSlider(value: initDuck1, minValue: 0.0, maxValue: 100.0, defaultValue: 50.0, alternateDefaultValue: 0.0, target: self, action: #selector(onFx1DryDuckRatioChanged(_:)))
         duck1Slider.isContinuous = true
         duck1Slider.controlSize = .small
-        duck1Slider.toolTip = "Anteiliger Rückgang des Dry Pre-Gain beim Aufdrehen von Pre-Gain 1 (Doppelklick: 50% / 0%)"
+        duck1Slider.toolTip = "Anteiliger Rückgang des Dry Pre-Gain beim Aufdrehen des VST Pre-Gain (Doppelklick: 50% / 0%)"
         duck1Slider.translatesAutoresizingMaskIntoConstraints = false
-        duck1Slider.widthAnchor.constraint(equalToConstant: 82).isActive = true
+        duck1Slider.widthAnchor.constraint(equalToConstant: 120).isActive = true
         duckRow.addArrangedSubview(duck1Slider)
         Self.flexFxRefs.fx1DryDuckSlider = duck1Slider
 
@@ -1073,33 +833,9 @@ extension MainWindowController {
         duck1Badge.font = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .bold)
         duck1Badge.textColor = NSColor(red: 1.0, green: 0.78, blue: 0.15, alpha: 1.0)
         duck1Badge.translatesAutoresizingMaskIntoConstraints = false
-        duck1Badge.widthAnchor.constraint(equalToConstant: 32).isActive = true
+        duck1Badge.widthAnchor.constraint(equalToConstant: 36).isActive = true
         duckRow.addArrangedSubview(duck1Badge)
         Self.flexFxRefs.fx1DryDuckBadge = duck1Badge
-
-        // VST 2 Ducking Ratio (0% .. 100%)
-        let vst2DuckLbl = NSTextField(labelWithString: "VST 2:")
-        vst2DuckLbl.font = NSFont.monospacedSystemFont(ofSize: 9, weight: .bold)
-        vst2DuckLbl.textColor = NSColor(red: 0.20, green: 0.85, blue: 0.95, alpha: 1.0)
-        duckRow.addArrangedSubview(vst2DuckLbl)
-
-        let initDuck2 = RaneFlexFxService.shared.fx2DryDuckRatio * 100.0
-        let duck2Slider = RaneResettableSlider(value: initDuck2, minValue: 0.0, maxValue: 100.0, defaultValue: 50.0, alternateDefaultValue: 0.0, target: self, action: #selector(onFx2DryDuckRatioChanged(_:)))
-        duck2Slider.isContinuous = true
-        duck2Slider.controlSize = .small
-        duck2Slider.toolTip = "Anteiliger Rückgang des Dry Pre-Gain beim Aufdrehen von Pre-Gain 2 (Doppelklick: 50% / 0%)"
-        duck2Slider.translatesAutoresizingMaskIntoConstraints = false
-        duck2Slider.widthAnchor.constraint(equalToConstant: 82).isActive = true
-        duckRow.addArrangedSubview(duck2Slider)
-        Self.flexFxRefs.fx2DryDuckSlider = duck2Slider
-
-        let duck2Badge = NSTextField(labelWithString: String(format: "%.0f%%", initDuck2))
-        duck2Badge.font = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .bold)
-        duck2Badge.textColor = NSColor(red: 0.20, green: 0.85, blue: 0.95, alpha: 1.0)
-        duck2Badge.translatesAutoresizingMaskIntoConstraints = false
-        duck2Badge.widthAnchor.constraint(equalToConstant: 32).isActive = true
-        duckRow.addArrangedSubview(duck2Badge)
-        Self.flexFxRefs.fx2DryDuckBadge = duck2Badge
 
         centerVertStack.addArrangedSubview(duckRow)
         duckRow.widthAnchor.constraint(equalTo: centerVertStack.widthAnchor).isActive = true
@@ -1122,7 +858,7 @@ extension MainWindowController {
         let postBox = createGainFaderBox(
             label: "DRY POST-GAIN",
             initialGain: RaneFlexFxService.shared.dryPostGain,
-            midiTarget: .dryPostGain,
+            channelControl: .dryPostGain,
             action: #selector(onDryPostGainChanged(_:)),
             sliderOut: { slider, badge in
                 Self.flexFxRefs.dryPostGainSlider = slider
@@ -1138,7 +874,7 @@ extension MainWindowController {
     private func createGainFaderBox(
         label: String,
         initialGain: Double,
-        midiTarget: FlexFxMidiTarget,
+        channelControl: ChannelControlType,
         action: Selector,
         sliderOut: (NSSlider, NSTextField) -> Void
     ) -> NSView {
@@ -1165,7 +901,7 @@ extension MainWindowController {
 
         box.addArrangedSubview(topRow)
 
-        let isVstPreGain = (midiTarget == .fx1PreGain || midiTarget == .fx2PreGain)
+        let isVstPreGain = (channelControl == .slot1PreGain || channelControl == .slot2PreGain)
         let defVal: Double = isVstPreGain ? 0.0 : 100.0
         let altVal: Double? = isVstPreGain ? 100.0 : 0.0
         let slider = RaneResettableSlider(value: initialGain * 100.0, minValue: 0.0, maxValue: 150.0, defaultValue: defVal, alternateDefaultValue: altVal, target: self, action: action)
@@ -1176,7 +912,7 @@ extension MainWindowController {
         slider.widthAnchor.constraint(equalToConstant: 104).isActive = true
         box.addArrangedSubview(slider)
 
-        let learnBtn = createMidiLearnBadgeButton(for: midiTarget, compact: true)
+        let learnBtn = createChannelMidiLearnBadgeButton(for: channelControl, compact: true)
         box.addArrangedSubview(learnBtn)
 
         sliderOut(slider, badge)
@@ -1206,6 +942,40 @@ extension MainWindowController {
         return v
     }
 
+    private func createChannelMidiLearnBadgeButton(for control: ChannelControlType, compact: Bool) -> NSButton {
+        let btn = NSButton(title: "🎹 MIDI", target: self, action: #selector(onChannelMidiLearnTargetClicked(_:)))
+        btn.bezelStyle = .inline
+        btn.font = NSFont.monospacedSystemFont(ofSize: compact ? 8.5 : 9.0, weight: .bold)
+        btn.wantsLayer = true
+        btn.layer?.cornerRadius = 4
+        btn.layer?.borderWidth = 1.0
+        btn.identifier = NSUserInterfaceItemIdentifier(control.rawValue)
+        btn.translatesAutoresizingMaskIntoConstraints = false
+        btn.heightAnchor.constraint(equalToConstant: compact ? 17 : 20).isActive = true
+        if !compact {
+            btn.widthAnchor.constraint(equalToConstant: 124).isActive = true
+        }
+        Self.flexFxRefs.channelMidiLearnButtons[control] = btn
+        return btn
+    }
+
+    @objc func onChannelMidiLearnTargetClicked(_ sender: NSButton) {
+        guard let raw = sender.identifier?.rawValue,
+              let control = ChannelControlType(rawValue: raw) else { return }
+        let chIdx = RaneFlexFxService.shared.selectedChannelIndex
+        let target = FlexFxMidiTarget.target(forChannel: chIdx, control: control)
+        let learn = RaneMidiLearnService.shared
+        if learn.isLearnModeActive && learn.selectedTarget == target {
+            learn.isLearnModeActive = false
+            learn.selectedTarget = nil
+        } else {
+            learn.isLearnModeActive = true
+            learn.selectedTarget = target
+            appendMidiLog("MIDI Learn: Bitte jetzt Knopf/Fader am MIDI-Controller für [\(target.displayName)] bewegen...")
+        }
+        updateFlexFxUi()
+    }
+
     private func createMidiLearnBadgeButton(for target: FlexFxMidiTarget, compact: Bool) -> NSButton {
         let btn = NSButton(title: "🎹 MIDI", target: self, action: #selector(onMatrixMidiLearnTargetClicked(_:)))
         btn.bezelStyle = .inline
@@ -1226,22 +996,19 @@ extension MainWindowController {
     // MARK: - Plugin & MIDI Menu Builders
     private func rebuildPluginMenu(for popup: NSPopUpButton, slotIndex: Int) {
         popup.removeAllItems()
+        guard slotIndex >= 0 && slotIndex < RanePluginHostService.shared.slots.count else { return }
         let slot = RanePluginHostService.shared.slots[slotIndex]
 
-        let headerInternal = NSMenuItem(title: "— Interne DaisySP Algorithmen —", action: nil, keyEquivalent: "")
-        headerInternal.isEnabled = false
-        popup.menu?.addItem(headerInternal)
+        // 1. Leer / Deaktiviert (0% CPU)
+        let emptyItem = NSMenuItem(title: "● Leer / Deaktiviert (0% CPU)", action: nil, keyEquivalent: "")
+        emptyItem.representedObject = "EMPTY"
+        popup.menu?.addItem(emptyItem)
 
-        for fx in FlexFxType.allCases {
-            let item = NSMenuItem(title: "● DaisySP: \(fx.displayName)", action: nil, keyEquivalent: "")
-            item.representedObject = "INTERNAL:\(fx.rawValue)"
-            popup.menu?.addItem(item)
-        }
-
+        // 2. Installierte VST2 Plugins
         let plugins = RanePluginHostService.shared.availablePlugins
         if !plugins.isEmpty {
             popup.menu?.addItem(NSMenuItem.separator())
-            let header = NSMenuItem(title: "— Installierte VST2 / VST3 Plugins (inkl. MIDI & Clock) —", action: nil, keyEquivalent: "")
+            let header = NSMenuItem(title: "— Installierte VST2 Plugins —", action: nil, keyEquivalent: "")
             header.isEnabled = false
             popup.menu?.addItem(header)
 
@@ -1253,20 +1020,20 @@ extension MainWindowController {
         }
 
         // Select current item
-        if slot.isCustomPlugin {
+        if slot.isCustomPlugin && slot.isLoaded {
             if let idx = popup.itemArray.firstIndex(where: { ($0.representedObject as? String) == slot.pluginId }) {
                 popup.selectItem(at: idx)
+            } else {
+                popup.selectItem(at: 0)
             }
         } else {
-            let targetKey = "INTERNAL:\(slot.defaultType.rawValue)"
-            if let idx = popup.itemArray.firstIndex(where: { ($0.representedObject as? String) == targetKey }) {
-                popup.selectItem(at: idx)
-            }
+            popup.selectItem(at: 0)
         }
     }
 
     private func rebuildVstMidiSourceMenu(for popup: NSPopUpButton, slotIndex: Int) {
         popup.removeAllItems()
+        guard slotIndex >= 0 && slotIndex < RanePluginHostService.shared.slots.count else { return }
         let currentSourceId = RanePluginHostService.shared.slots[slotIndex].midiInputSourceId
 
         let omniItem = NSMenuItem(title: "Alle Controller (Omni)", action: nil, keyEquivalent: "")
@@ -1312,10 +1079,13 @@ extension MainWindowController {
     }
 
     func rebuildAllPluginMenus() {
-        for (slotIdx, popup) in Self.flexFxRefs.vstPluginPopups {
+        let s = RaneFlexFxService.shared
+        let slotIdx = s.activeChannel.slotIndex
+
+        if let popup = Self.flexFxRefs.vstPluginPopups[0] {
             rebuildPluginMenu(for: popup, slotIndex: slotIdx)
         }
-        for (slotIdx, popup) in Self.flexFxRefs.vstMidiSourcePopups {
+        if let popup = Self.flexFxRefs.vstMidiSourcePopups[0] {
             rebuildVstMidiSourceMenu(for: popup, slotIndex: slotIdx)
         }
     }
@@ -1396,107 +1166,119 @@ extension MainWindowController {
             }
         }
 
-        // 4. Left & Right Stereo Channel Pair Columns
-        Self.flexFxRefs.usbRecordPopup?.selectItem(withTag: s.inputSource.rawValue)
-        Self.flexFxRefs.usbRecordChannelBadge?.stringValue = s.inputSource.shortName
 
-        Self.flexFxRefs.usbPlaybackPopup?.selectItem(withTag: s.outputDestination.rawValue)
-        Self.flexFxRefs.usbPlaybackChannelBadge?.stringValue = s.outputDestination.shortName
-
-        if let ppBtn = Self.flexFxRefs.prePostButton {
-            if s.isPreFader {
-                ppBtn.title = "PRE-FADER (Hard Cut)"
-                ppBtn.layer?.backgroundColor = NSColor.systemOrange.withAlphaComponent(0.20).cgColor
-                ppBtn.layer?.borderColor = NSColor.systemOrange.cgColor
-                ppBtn.contentTintColor = NSColor.systemOrange
-            } else {
-                ppBtn.title = "POST-FADER (Tail)"
-                ppBtn.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.20).cgColor
-                ppBtn.layer?.borderColor = NSColor.systemBlue.cgColor
-                ppBtn.contentTintColor = NSColor.systemBlue
-            }
-        }
-
-        // 5. 6 Gain Faders (3x Pre-Gain + 3x Post-Gain) & Proportional Dry Ducking
+        // 5. Gain Faders & Proportional Dry Ducking
         Self.flexFxRefs.fx1PreGainSlider?.doubleValue = s.fx1PreGain * 100.0
         Self.flexFxRefs.fx1PreGainBadge?.stringValue = formatGainBadge(s.fx1PreGain)
-        Self.flexFxRefs.fx2PreGainSlider?.doubleValue = s.fx2PreGain * 100.0
-        Self.flexFxRefs.fx2PreGainBadge?.stringValue = formatGainBadge(s.fx2PreGain)
         Self.flexFxRefs.dryPreGainSlider?.doubleValue = s.dryPreGain * 100.0
         Self.flexFxRefs.dryPreGainBadge?.stringValue = formatGainBadge(s.dryPreGain)
 
         Self.flexFxRefs.fx1PostGainSlider?.doubleValue = s.fx1PostGain * 100.0
         Self.flexFxRefs.fx1PostGainBadge?.stringValue = formatGainBadge(s.fx1PostGain)
-        Self.flexFxRefs.fx2PostGainSlider?.doubleValue = s.fx2PostGain * 100.0
-        Self.flexFxRefs.fx2PostGainBadge?.stringValue = formatGainBadge(s.fx2PostGain)
         Self.flexFxRefs.dryPostGainSlider?.doubleValue = s.dryPostGain * 100.0
         Self.flexFxRefs.dryPostGainBadge?.stringValue = formatGainBadge(s.dryPostGain)
 
         Self.flexFxRefs.fx1DryDuckSlider?.doubleValue = s.fx1DryDuckRatio * 100.0
         Self.flexFxRefs.fx1DryDuckBadge?.stringValue = String(format: "%.0f%%", s.fx1DryDuckRatio * 100.0)
-        Self.flexFxRefs.fx2DryDuckSlider?.doubleValue = s.fx2DryDuckRatio * 100.0
-        Self.flexFxRefs.fx2DryDuckBadge?.stringValue = String(format: "%.0f%%", s.fx2DryDuckRatio * 100.0)
         Self.flexFxRefs.dryBaseInfoBadge?.stringValue = "Ausgang: \(formatGainBadge(s.dryBasePreGain))"
 
-        // 6. VST Effekt 1 (Slot 0) & VST Effekt 2 (Slot 1) Cards
-        for slotIdx in 0...1 {
-            let slot = RanePluginHostService.shared.slots[slotIdx]
-            let isSlotEnabled = (slotIdx == 0) ? s.isFx1Enabled : s.isFx2Enabled
-            let accent = (slotIdx == 0) ? NSColor(red: 1.0, green: 0.78, blue: 0.15, alpha: 1.0) : NSColor(red: 0.20, green: 0.85, blue: 0.95, alpha: 1.0)
+        // 6. Dedicated VST Card for Selected Channel Strip (Slot 0..4)
+        let slotIdx = s.activeChannel.slotIndex
+        let slot = RanePluginHostService.shared.slots[slotIdx]
+        let isSlotEnabled = s.isFx1Enabled
+        let accent = NSColor(red: 1.0, green: 0.78, blue: 0.15, alpha: 1.0)
 
-            if let btn = Self.flexFxRefs.vstToggleButtons[slotIdx] {
-                let stateText = isSlotEnabled ? "ON" : "OFF"
-                btn.title = "VST EFFEKT \(slotIdx + 1): \(stateText)"
-                if isSlotEnabled && s.isModuleEnabled {
-                    btn.layer?.backgroundColor = accent.withAlphaComponent(0.88).cgColor
-                    btn.layer?.borderColor = accent.cgColor
-                    btn.contentTintColor = NSColor.black
+        if let btn = Self.flexFxRefs.vstToggleButtons[0] {
+            let stateText = isSlotEnabled ? "ON" : "OFF"
+            btn.title = "SLOT [\(s.activeChannel.shortName)]: \(stateText)"
+            if isSlotEnabled && s.isModuleEnabled && slot.isLoaded {
+                btn.layer?.backgroundColor = accent.withAlphaComponent(0.88).cgColor
+                btn.layer?.borderColor = accent.cgColor
+                btn.contentTintColor = NSColor.black
+            } else {
+                btn.layer?.backgroundColor = NSColor(white: 0.16, alpha: 0.85).cgColor
+                btn.layer?.borderColor = NSColor(white: 0.34, alpha: 0.6).cgColor
+                btn.contentTintColor = NSColor(white: 0.68, alpha: 1.0)
+            }
+        }
+
+        if let uiBtn = Self.flexFxRefs.vstUiButtons[0] {
+            uiBtn.title = "🎛 Editor"
+            uiBtn.isEnabled = slot.isCustomPlugin && slot.isLoaded
+        }
+
+        if let popup = Self.flexFxRefs.vstPluginPopups[0] {
+            if slot.isCustomPlugin && slot.isLoaded {
+                if let idx = popup.itemArray.firstIndex(where: { ($0.representedObject as? String) == slot.pluginId }) {
+                    popup.selectItem(at: idx)
                 } else {
-                    btn.layer?.backgroundColor = NSColor(white: 0.16, alpha: 0.85).cgColor
-                    btn.layer?.borderColor = NSColor(white: 0.34, alpha: 0.6).cgColor
-                    btn.contentTintColor = NSColor(white: 0.68, alpha: 1.0)
+                    popup.selectItem(at: 0)
                 }
+            } else {
+                popup.selectItem(at: 0) // "Leer / Deaktiviert"
             }
+        }
 
-            if let uiBtn = Self.flexFxRefs.vstUiButtons[slotIdx] {
-                uiBtn.title = slot.isCustomPlugin ? "🎛 VST UI" : "⚙ Param"
-                uiBtn.isEnabled = true
+        if let srcPopup = Self.flexFxRefs.vstMidiSourcePopups[0] {
+            let curSrc = slot.midiInputSourceId
+            if let idx = srcPopup.itemArray.firstIndex(where: { ($0.representedObject as? String) == curSrc }) {
+                srcPopup.selectItem(at: idx)
+            } else {
+                srcPopup.selectItem(at: 0)
             }
+        }
 
-            if let popup = Self.flexFxRefs.vstPluginPopups[slotIdx] {
-                if slot.isCustomPlugin {
-                    if let idx = popup.itemArray.firstIndex(where: { ($0.representedObject as? String) == slot.pluginId }) {
-                        popup.selectItem(at: idx)
-                    }
-                } else {
-                    let key = "INTERNAL:\(slot.defaultType.rawValue)"
-                    if let idx = popup.itemArray.firstIndex(where: { ($0.representedObject as? String) == key }) {
-                        popup.selectItem(at: idx)
-                    }
-                }
-            }
+        if let chPopup = Self.flexFxRefs.vstMidiChannelPopups[0] {
+            chPopup.selectItem(at: min(16, max(0, slot.midiChannelFilter)))
+        }
 
-            if let chPopup = Self.flexFxRefs.vstMidiChannelPopups[slotIdx] {
-                chPopup.selectItem(at: min(16, max(0, slot.midiChannelFilter)))
-            }
+        if let clockCheck = Self.flexFxRefs.vstMidiClockCheckboxes[0] {
+            clockCheck.state = slot.sendMidiClock ? .on : .off
+        }
 
-            if let clockCheck = Self.flexFxRefs.vstMidiClockCheckboxes[slotIdx] {
-                clockCheck.state = slot.sendMidiClock ? .on : .off
-            }
-
-            if let statusLbl = Self.flexFxRefs.vstMidiStatusLabels[slotIdx] {
+        if let statusLbl = Self.flexFxRefs.vstMidiStatusLabels[0] {
+            if !slot.isLoaded {
+                statusLbl.stringValue = "● Slot leer (0% CPU)"
+                statusLbl.textColor = NSColor(white: 0.6, alpha: 1.0)
+            } else {
                 let clkStr = slot.sendMidiClock ? "🕒 \(String(format: "%.1f", s.bpm)) BPM" : "Clock Aus"
                 if !slot.lastMidiEventSummary.isEmpty && (Date().timeIntervalSince1970 - slot.lastMidiEventTime) < 10.0 {
                     statusLbl.stringValue = "⚡ \(slot.lastMidiEventSummary) • \(clkStr)"
                     statusLbl.textColor = NSColor.systemYellow
                 } else {
-                    statusLbl.stringValue = "\(clkStr) • MIDI bereit"
+                    statusLbl.stringValue = "\(clkStr) • VST2 aktiv"
                     statusLbl.textColor = NSColor(red: 0.30, green: 0.90, blue: 0.55, alpha: 0.85)
                 }
             }
         }
 
         // 7. Update all interactive MIDI Learn Badges
+        // 7a. Per-Channel Matrix Badges (PGM 1..4 & FlexFX)
+        let chIdx = s.selectedChannelIndex
+        for (control, btn) in Self.flexFxRefs.channelMidiLearnButtons {
+            let target = FlexFxMidiTarget.target(forChannel: chIdx, control: control)
+            let isSelectingThis = (learn.isLearnModeActive && learn.selectedTarget == target)
+            if isSelectingThis {
+                btn.title = "⏳ Bewege MIDI..."
+                btn.layer?.backgroundColor = NSColor.systemYellow.withAlphaComponent(0.32).cgColor
+                btn.layer?.borderColor = NSColor.systemYellow.cgColor
+                btn.contentTintColor = NSColor.systemYellow
+            } else if let m = learn.mappingFor(target: target) {
+                let chText = (m.channel == 255) ? "All" : "Ch\(m.channel + 1)"
+                let typeText = (m.type == .note) ? "Note \(m.number)" : "CC #\(m.number)"
+                btn.title = "🎹 \(typeText) (\(chText))"
+                btn.layer?.backgroundColor = NSColor.systemGreen.withAlphaComponent(0.20).cgColor
+                btn.layer?.borderColor = NSColor.systemGreen.withAlphaComponent(0.65).cgColor
+                btn.contentTintColor = NSColor.systemGreen
+            } else {
+                btn.title = learn.isLearnModeActive ? "🎯 Hier klicken" : "🎹 MIDI Learn"
+                btn.layer?.backgroundColor = NSColor(white: 0.18, alpha: 0.75).cgColor
+                btn.layer?.borderColor = learn.isLearnModeActive ? NSColor.systemYellow.withAlphaComponent(0.6).cgColor : NSColor(white: 0.32, alpha: 0.5).cgColor
+                btn.contentTintColor = learn.isLearnModeActive ? NSColor.systemYellow : NSColor(white: 0.65, alpha: 1.0)
+            }
+        }
+
+        // 7b. Global Badges (Tempo, Ableton Link, etc.)
         for (target, btn) in Self.flexFxRefs.midiLearnButtons {
             let isSelectingThis = (learn.isLearnModeActive && learn.selectedTarget == target)
             if isSelectingThis {
@@ -1604,23 +1386,27 @@ extension MainWindowController {
         updateFlexFxUi()
     }
 
+    @objc func onChannelStripSelected(_ sender: NSSegmentedControl) {
+        RaneFlexFxService.shared.selectedChannelIndex = sender.selectedSegment
+        rebuildAllPluginMenus()
+        updateFlexFxUi()
+    }
+
     @objc func onPluginSelected(_ sender: NSPopUpButton) {
-        let slotIdx = sender.tag
+        let s = RaneFlexFxService.shared
+        let slotIdx = s.activeChannel.slotIndex
         guard let rep = sender.selectedItem?.representedObject as? String else { return }
 
-        if rep.hasPrefix("INTERNAL:") {
-            let numStr = rep.replacingOccurrences(of: "INTERNAL:", with: "")
-            if let raw = Int(numStr), let fx = FlexFxType(rawValue: raw) {
-                RanePluginHostService.shared.setSlotInternalType(slotIndex: slotIdx, fxType: fx)
-                appendMidiLog("FlexFX Bus \(slotIdx + 1): Interner DaisySP Algorithmus '\(fx.displayName)' gewählt.")
-                updateFlexFxUi()
-            }
+        if rep == "EMPTY" {
+            RanePluginHostService.shared.unloadSlot(slotIndex: slotIdx)
+            appendMidiLog("Kanal \(s.activeChannel.shortName): VST entladen (Leer / 0% CPU).")
+            updateFlexFxUi()
         } else if let info = RanePluginHostService.shared.availablePlugins.first(where: { $0.id == rep }) {
             RanePluginHostService.shared.loadPlugin(slotIndex: slotIdx, pluginInfo: info) { [weak self] success in
                 if success {
-                    self?.appendMidiLog("FlexFX Bus \(slotIdx + 1): \(info.format.rawValue) Plugin '\(info.name)' geladen (MIDI + 24 PPQN Clock aktiv)!")
+                    self?.appendMidiLog("Kanal \(s.activeChannel.shortName): VST2 Plugin '\(info.name)' geladen!")
                 } else {
-                    self?.appendMidiLog("FlexFX Bus \(slotIdx + 1): Fehler beim Laden von '\(info.name)'!")
+                    self?.appendMidiLog("Kanal \(s.activeChannel.shortName): Fehler beim Laden von '\(info.name)'!")
                 }
                 self?.updateFlexFxUi()
             }
@@ -1628,39 +1414,41 @@ extension MainWindowController {
     }
 
     @objc func onPluginUiButtonClicked(_ sender: NSButton) {
-        let slotIdx = sender.tag
+        let s = RaneFlexFxService.shared
+        let slotIdx = s.activeChannel.slotIndex
         let slot = RanePluginHostService.shared.slots[slotIdx]
-        if slot.isCustomPlugin {
+        if slot.isCustomPlugin && slot.isLoaded {
             RanePluginHostService.shared.openPluginUI(for: slotIdx)
-        } else {
-            showEffectDetailPopover(for: slot.defaultType, relativeTo: sender)
         }
     }
 
     @objc func onVstMidiSourceChanged(_ sender: NSPopUpButton) {
-        let slotIdx = sender.tag
+        let s = RaneFlexFxService.shared
+        let slotIdx = s.activeChannel.slotIndex
         guard let sourceId = sender.selectedItem?.representedObject as? String else { return }
         RanePluginHostService.shared.setSlotMidiSource(slotIndex: slotIdx, sourceId: sourceId)
-        appendMidiLog("VST Effekt \(slotIdx + 1): MIDI-Eingang gesetzt auf [\(sender.selectedItem?.title ?? sourceId)]")
+        appendMidiLog("\(s.activeChannel.shortName): MIDI-Eingang -> [\(sender.selectedItem?.title ?? sourceId)]")
     }
 
     @objc func onVstMidiChannelChanged(_ sender: NSPopUpButton) {
-        let slotIdx = sender.tag
+        let s = RaneFlexFxService.shared
+        let slotIdx = s.activeChannel.slotIndex
         let ch = max(0, sender.indexOfSelectedItem) // 0 = All, 1..16 = Ch 1..16
         RanePluginHostService.shared.setSlotMidiChannel(slotIndex: slotIdx, channel: ch)
-        appendMidiLog("VST Effekt \(slotIdx + 1): MIDI-Kanal gesetzt auf [\(ch == 0 ? "Alle Kanäle" : "Ch \(ch)")]")
+        appendMidiLog("\(s.activeChannel.shortName): MIDI-Kanal -> [\(ch == 0 ? "Alle Kanäle" : "Ch \(ch)")]")
     }
 
     @objc func onVstMidiClockToggled(_ sender: NSButton) {
-        let slotIdx = sender.tag
+        let s = RaneFlexFxService.shared
+        let slotIdx = s.activeChannel.slotIndex
         let enabled = (sender.state == .on)
         RanePluginHostService.shared.setSlotSendMidiClock(slotIndex: slotIdx, enabled: enabled)
-        appendMidiLog("VST Effekt \(slotIdx + 1): MIDI Clock (24 PPQN Tempo Sync) -> [\(enabled ? "EIN" : "AUS")]")
+        appendMidiLog("\(s.activeChannel.shortName): MIDI Clock Sync -> [\(enabled ? "EIN" : "AUS")]")
     }
 
     @objc func onVst1ToggleClicked(_ sender: NSButton) {
         RaneFlexFxService.shared.isFx1Enabled.toggle()
-        appendMidiLog("VST Effekt 1: [\(RaneFlexFxService.shared.isFx1Enabled ? "ON" : "OFF")]")
+        appendMidiLog("VST Effekt [\(RaneFlexFxService.shared.activeChannel.shortName)]: [\(RaneFlexFxService.shared.isFx1Enabled ? "ON" : "OFF")]")
     }
 
     @objc func onVst2ToggleClicked(_ sender: NSButton) {
@@ -1688,8 +1476,11 @@ extension MainWindowController {
 
     @objc func onDryPreGainChanged(_ sender: NSSlider) {
         let val = sender.doubleValue / 100.0
-        RaneFlexFxService.shared.dryPreGain = val
-        Self.flexFxRefs.dryPreGainBadge?.stringValue = formatGainBadge(val)
+        RaneFlexFxService.shared.dryBasePreGain = val
+        RaneFlexFxService.shared.recalculateLinkedDryPreGain()
+        let dry = RaneFlexFxService.shared.dryPreGain
+        Self.flexFxRefs.dryPreGainSlider?.doubleValue = dry * 100.0
+        Self.flexFxRefs.dryPreGainBadge?.stringValue = formatGainBadge(dry)
         Self.flexFxRefs.dryBaseInfoBadge?.stringValue = "Ausgang: \(formatGainBadge(RaneFlexFxService.shared.dryBasePreGain))"
     }
 
@@ -1829,10 +1620,10 @@ extension MainWindowController {
     }
 
     @objc func onRescanPluginsClicked(_ sender: NSButton) {
-        appendMidiLog("FlexFX Host: Scanne nach installierten VST2 / VST3 Plugins...")
+        appendMidiLog("Plugin Host: Scanne nach installierten VST2 Plugins (.vst)...")
         RanePluginHostService.shared.rescanAvailablePlugins()
         let count = RanePluginHostService.shared.availablePlugins.count
-        appendMidiLog("FlexFX Host: Scan abgeschlossen — \(count) VST2/VST3 Plugins gefunden.")
+        appendMidiLog("Plugin Host: Scan abgeschlossen — \(count) VST2 Plugins gefunden.")
         rebuildAllPluginMenus()
         updateFlexFxUi()
     }

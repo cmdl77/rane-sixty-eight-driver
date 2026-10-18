@@ -46,13 +46,15 @@ cp -R RaneHAL.driver RaneMIDIAgent rane-selftest rane-stresstest "Rane Driver Ma
 # Compile Universal 2 Swift Binary from modular sources (x86_64 + arm64)
 clang -O2 -target x86_64-apple-macos11.0 -c "${SCRIPT_DIR}/src/manager/Link/RaneVstBridge.c" -o "${BUILD_DIR}/RaneVstBridge_x86.o"
 clang -O2 -target arm64-apple-macos11.0 -c "${SCRIPT_DIR}/src/manager/Link/RaneVstBridge.c" -o "${BUILD_DIR}/RaneVstBridge_arm.o"
+clang++ -O2 -std=c++14 -target x86_64-apple-macos11.0 -I "${SCRIPT_DIR}/third_party/link/extensions/abl_link/include" -c "${SCRIPT_DIR}/src/manager/Link/RaneLinkBridge.cpp" -o "${BUILD_DIR}/RaneLinkBridge_x86.o"
+clang++ -O2 -std=c++14 -target arm64-apple-macos11.0 -I "${SCRIPT_DIR}/third_party/link/extensions/abl_link/include" -c "${SCRIPT_DIR}/src/manager/Link/RaneLinkBridge.cpp" -o "${BUILD_DIR}/RaneLinkBridge_arm.o"
 SWIFT_FILES=$(find "${SCRIPT_DIR}/src/manager" -name "*.swift" | sort)
-swiftc -O -whole-module-optimization -target x86_64-apple-macos11.0 -import-objc-header "${SCRIPT_DIR}/src/manager/Link/RaneLinkBridge.h" "${BUILD_DIR}/RaneVstBridge_x86.o" -L"${SCRIPT_DIR}/lib" -labl_link -lc++ -framework Cocoa -framework IOKit -framework CoreMIDI -framework CoreAudio -framework AudioToolbox -framework AVFoundation -framework CoreAudioKit ${SWIFT_FILES} -o "Rane Driver Manager.app/Contents/MacOS/Rane Driver Manager_x86"
-swiftc -O -whole-module-optimization -target arm64-apple-macos11.0 -import-objc-header "${SCRIPT_DIR}/src/manager/Link/RaneLinkBridge.h" "${BUILD_DIR}/RaneVstBridge_arm.o" -L"${SCRIPT_DIR}/lib" -labl_link -lc++ -framework Cocoa -framework IOKit -framework CoreMIDI -framework CoreAudio -framework AudioToolbox -framework AVFoundation -framework CoreAudioKit ${SWIFT_FILES} -o "Rane Driver Manager.app/Contents/MacOS/Rane Driver Manager_arm"
+swiftc -O -whole-module-optimization -target x86_64-apple-macos11.0 -import-objc-header "${SCRIPT_DIR}/src/manager/Link/RaneLinkBridge.h" "${BUILD_DIR}/RaneVstBridge_x86.o" "${BUILD_DIR}/RaneLinkBridge_x86.o" -L"${SCRIPT_DIR}/lib" -labl_link -lc++ -framework Cocoa -framework IOKit -framework CoreMIDI -framework CoreAudio -framework AudioToolbox -framework AVFoundation -framework CoreAudioKit ${SWIFT_FILES} -o "Rane Driver Manager.app/Contents/MacOS/Rane Driver Manager_x86"
+swiftc -O -whole-module-optimization -target arm64-apple-macos11.0 -import-objc-header "${SCRIPT_DIR}/src/manager/Link/RaneLinkBridge.h" "${BUILD_DIR}/RaneVstBridge_arm.o" "${BUILD_DIR}/RaneLinkBridge_arm.o" -L"${SCRIPT_DIR}/lib" -labl_link -lc++ -framework Cocoa -framework IOKit -framework CoreMIDI -framework CoreAudio -framework AudioToolbox -framework AVFoundation -framework CoreAudioKit ${SWIFT_FILES} -o "Rane Driver Manager.app/Contents/MacOS/Rane Driver Manager_arm"
 lipo -create -output "Rane Driver Manager.app/Contents/MacOS/Rane Driver Manager" \
      "Rane Driver Manager.app/Contents/MacOS/Rane Driver Manager_x86" \
      "Rane Driver Manager.app/Contents/MacOS/Rane Driver Manager_arm"
-rm -f "Rane Driver Manager.app/Contents/MacOS/Rane Driver Manager_x86" "Rane Driver Manager.app/Contents/MacOS/Rane Driver Manager_arm" "${BUILD_DIR}/RaneVstBridge_x86.o" "${BUILD_DIR}/RaneVstBridge_arm.o"
+rm -f "Rane Driver Manager.app/Contents/MacOS/Rane Driver Manager_x86" "Rane Driver Manager.app/Contents/MacOS/Rane Driver Manager_arm" "${BUILD_DIR}/RaneVstBridge_x86.o" "${BUILD_DIR}/RaneVstBridge_arm.o" "${BUILD_DIR}/RaneLinkBridge_x86.o" "${BUILD_DIR}/RaneLinkBridge_arm.o"
 
 rm -rf "Rane Sixty-Eight Control Panel.app"
 cp -R "Rane Driver Manager.app" "Rane Sixty-Eight Control Panel.app"

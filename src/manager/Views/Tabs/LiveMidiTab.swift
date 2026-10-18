@@ -18,23 +18,76 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
         static var filterChannelPopup: NSPopUpButton?
         static var filterLabelField: NSTextField?
 
-        static var mappingRows: [FlexFxMidiTarget] = [
-            // ── 3-Bus Parallel Matrix Controls ──
-            .usbRecordKnob,
-            .fx1PreGain,
-            .fx2PreGain,
-            .dryPreGain,
+        static var channelFilterSegment: NSSegmentedControl?
+        static var selectedFilterIndex: Int = 0 // 0: Alle, 1: PGM 1, 2: PGM 2, 3: PGM 3, 4: PGM 4, 5: FlexFX, 6: Global/Mixer
+
+        static var allInMappingRows: [FlexFxMidiTarget] = [
+            // ── PGM 1 (Deck 1) ──
+            .pgm1Slot1Toggle,
+            .pgm1Slot1PreGain,
+            .pgm1Slot1PostGain,
+            .pgm1Slot2Toggle,
+            .pgm1Slot2PreGain,
+            .pgm1Slot2PostGain,
+            .pgm1DryPreGain,
+            .pgm1DryPostGain,
+
+            // ── PGM 2 (Deck 2) ──
+            .pgm2Slot1Toggle,
+            .pgm2Slot1PreGain,
+            .pgm2Slot1PostGain,
+            .pgm2Slot2Toggle,
+            .pgm2Slot2PreGain,
+            .pgm2Slot2PostGain,
+            .pgm2DryPreGain,
+            .pgm2DryPostGain,
+
+            // ── PGM 3 (Deck 3) ──
+            .pgm3Slot1Toggle,
+            .pgm3Slot1PreGain,
+            .pgm3Slot1PostGain,
+            .pgm3Slot2Toggle,
+            .pgm3Slot2PreGain,
+            .pgm3Slot2PostGain,
+            .pgm3DryPreGain,
+            .pgm3DryPostGain,
+
+            // ── PGM 4 (Deck 4) ──
+            .pgm4Slot1Toggle,
+            .pgm4Slot1PreGain,
+            .pgm4Slot1PostGain,
+            .pgm4Slot2Toggle,
+            .pgm4Slot2PreGain,
+            .pgm4Slot2PostGain,
+            .pgm4DryPreGain,
+            .pgm4DryPostGain,
+
+            // ── FlexFX Return Bus ──
+            .flexFxSlot1Toggle,
+            .flexFxSlot1PreGain,
+            .flexFxSlot1PostGain,
+            .flexFxSlot2Toggle,
+            .flexFxSlot2PreGain,
+            .flexFxSlot2PostGain,
+            .flexFxDryPreGain,
+            .flexFxDryPostGain,
+
+            // ── Aktiver Kanal (UI Fokus) ──
             .vst1Toggle,
-            .vst2Toggle,
+            .fx1PreGain,
             .fx1PostGain,
+            .vst2Toggle,
+            .fx2PreGain,
             .fx2PostGain,
+            .dryPreGain,
             .dryPostGain,
-            .usbPlaybackKnob,
+
             // ── Master Tempo, Link & Module ──
             .tempo,
             .abletonLink,
             .modulePower,
             .prePost,
+
             // ── Direct Stereo Input Pair Selectors (Ch 1–12) ──
             .inputPgm1,
             .inputPgm2,
@@ -42,6 +95,7 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
             .inputPgm4,
             .inputFlexFx,
             .inputMainMix,
+
             // ── Direct Stereo Output Pair Selectors (Ch 1–10) ──
             .outputPgm1,
             .outputPgm2,
@@ -51,9 +105,32 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
         ]
 
         // Out mapping rows: Targets that have status / LED indicators
-        static var outMappingRows: [FlexFxMidiTarget] = [
+        static var allOutMappingRows: [FlexFxMidiTarget] = [
+            // ── PGM 1 (Deck 1) ──
+            .pgm1Slot1Toggle,
+            .pgm1Slot2Toggle,
+
+            // ── PGM 2 (Deck 2) ──
+            .pgm2Slot1Toggle,
+            .pgm2Slot2Toggle,
+
+            // ── PGM 3 (Deck 3) ──
+            .pgm3Slot1Toggle,
+            .pgm3Slot2Toggle,
+
+            // ── PGM 4 (Deck 4) ──
+            .pgm4Slot1Toggle,
+            .pgm4Slot2Toggle,
+
+            // ── FlexFX Return Bus ──
+            .flexFxSlot1Toggle,
+            .flexFxSlot2Toggle,
+
+            // ── Aktiver Kanal (UI Fokus) ──
             .vst1Toggle,
             .vst2Toggle,
+
+            // ── Global / Mixer LEDs ──
             .abletonLink,
             .modulePower,
             .prePost,
@@ -69,6 +146,26 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
             .outputPgm4,
             .outputFlexFx
         ]
+
+        static var currentRows: [FlexFxMidiTarget] {
+            let base = isOutTableActive ? allOutMappingRows : allInMappingRows
+            switch selectedFilterIndex {
+            case 1: // PGM 1
+                return base.filter { $0.channelIndexAndControl?.channelIndex == 0 }
+            case 2: // PGM 2
+                return base.filter { $0.channelIndexAndControl?.channelIndex == 1 }
+            case 3: // PGM 3
+                return base.filter { $0.channelIndexAndControl?.channelIndex == 2 }
+            case 4: // PGM 4
+                return base.filter { $0.channelIndexAndControl?.channelIndex == 3 }
+            case 5: // FlexFX
+                return base.filter { $0.channelIndexAndControl?.channelIndex == 4 }
+            case 6: // Global / Aktiv
+                return base.filter { $0.channelIndexAndControl == nil }
+            default: // 0: Alle
+                return base
+            }
+        }
     }
 
     func buildMidiPage() -> NSView {
@@ -111,9 +208,22 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
         let modeSegment = NSSegmentedControl(labels: ["Add In... (Controller Input)", "Add Out... (LED Feedback)"], trackingMode: .selectOne, target: self, action: #selector(onTableModeChanged(_:)))
         modeSegment.selectedSegment = ControllerManagerRefs.isOutTableActive ? 1 : 0
         modeSegment.controlSize = .small
-        modeSegment.font = NSFont.systemFont(ofSize: 11, weight: .bold)
+        modeSegment.font = NSFont.systemFont(ofSize: 10.5, weight: .bold)
         sec1TopBar.addArrangedSubview(modeSegment)
         ControllerManagerRefs.tableModeSegment = modeSegment
+
+        // Channel Category Filter: [Alle | PGM 1 | PGM 2 | PGM 3 | PGM 4 | FlexFX | Global]
+        let chFilterSegment = NSSegmentedControl(
+            labels: ["Alle", "PGM 1", "PGM 2", "PGM 3", "PGM 4", "FlexFX", "Global"],
+            trackingMode: .selectOne,
+            target: self,
+            action: #selector(onChannelFilterChanged(_:))
+        )
+        chFilterSegment.selectedSegment = ControllerManagerRefs.selectedFilterIndex
+        chFilterSegment.controlSize = .small
+        chFilterSegment.font = NSFont.systemFont(ofSize: 10, weight: .bold)
+        sec1TopBar.addArrangedSubview(chFilterSegment)
+        ControllerManagerRefs.channelFilterSegment = chFilterSegment
 
         // Controller MIDI Input Device Selector
         let devLabel = NSTextField(labelWithString: "MIDI-In:")
@@ -181,7 +291,7 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
         )
         sec1Outer.addArrangedSubview(tableCard)
         tableCard.widthAnchor.constraint(equalTo: sec1Outer.widthAnchor).isActive = true
-        tableScroll.heightAnchor.constraint(equalToConstant: 185).isActive = true
+        tableScroll.heightAnchor.constraint(equalToConstant: 225).isActive = true
 
         let sec1Inset = sec1Outer.wrapInInsetCard(
             cornerRadius: 12,
@@ -578,15 +688,19 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
         appendMidiLog("Controller Manager Modus gewechselt: [\(modeName)]")
     }
 
+    @objc func onChannelFilterChanged(_ sender: NSSegmentedControl) {
+        ControllerManagerRefs.selectedFilterIndex = sender.selectedSegment
+        ControllerManagerRefs.mappingTableView?.reloadData()
+        let filterName = sender.label(forSegment: sender.selectedSegment) ?? ""
+        appendMidiLog("Controller Manager Kanalfilter: [\(filterName)]")
+    }
+
     // MARK: - NSTableViewDataSource & NSTableViewDelegate
     public func numberOfRows(in tableView: NSTableView) -> Int {
         if tableView.identifier?.rawValue == "FilterTable" {
             return RaneMidiLearnService.shared.filterRules.count
         }
-        if ControllerManagerRefs.isOutTableActive {
-            return ControllerManagerRefs.outMappingRows.count
-        }
-        return ControllerManagerRefs.mappingRows.count
+        return ControllerManagerRefs.currentRows.count
     }
 
     public func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
@@ -638,8 +752,8 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
 
         // MAPPING TABLE
         if ControllerManagerRefs.isOutTableActive {
-            guard row < ControllerManagerRefs.outMappingRows.count else { return nil }
-            let target = ControllerManagerRefs.outMappingRows[row]
+            guard row < ControllerManagerRefs.currentRows.count else { return nil }
+            let target = ControllerManagerRefs.currentRows[row]
             let learn = RaneMidiLearnService.shared
             let outMap = learn.outMappingFor(target: target)
             let cellId = col.identifier.rawValue
@@ -753,8 +867,8 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
         }
 
         // IN MAPPING TABLE
-        guard row < ControllerManagerRefs.mappingRows.count else { return nil }
-        let target = ControllerManagerRefs.mappingRows[row]
+        guard row < ControllerManagerRefs.currentRows.count else { return nil }
+        let target = ControllerManagerRefs.currentRows[row]
         let learn = RaneMidiLearnService.shared
         let mapping = learn.mappingFor(target: target)
         let isLearningThis = (learn.isLearnModeActive && learn.selectedTarget == target)
@@ -899,8 +1013,8 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
     // MARK: - Actions (Mapping Table)
     @objc func onTableRowTypeChanged(_ sender: NSPopUpButton) {
         let row = sender.tag
-        guard row < ControllerManagerRefs.mappingRows.count else { return }
-        let target = ControllerManagerRefs.mappingRows[row]
+        guard row < ControllerManagerRefs.currentRows.count else { return }
+        let target = ControllerManagerRefs.currentRows[row]
         let types = ControlInteractionType.allCases
         let selectedType = types[min(max(0, sender.indexOfSelectedItem), types.count - 1)]
 
@@ -920,8 +1034,8 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
 
     @objc func onTableRowOptionChanged(_ sender: NSPopUpButton) {
         let row = sender.tag
-        guard row < ControllerManagerRefs.mappingRows.count else { return }
-        let target = ControllerManagerRefs.mappingRows[row]
+        guard row < ControllerManagerRefs.currentRows.count else { return }
+        let target = ControllerManagerRefs.currentRows[row]
         let modes = ButtonMode.allCases
         let selectedMode = modes[min(max(0, sender.indexOfSelectedItem), modes.count - 1)]
 
@@ -939,8 +1053,8 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
 
     @objc func onTableRowMidiTypeChanged(_ sender: NSPopUpButton) {
         let row = sender.tag
-        guard row < ControllerManagerRefs.mappingRows.count else { return }
-        let target = ControllerManagerRefs.mappingRows[row]
+        guard row < ControllerManagerRefs.currentRows.count else { return }
+        let target = ControllerManagerRefs.currentRows[row]
         let isNote = (sender.indexOfSelectedItem == 1)
         let newType: MidiMessageType = isNote ? .note : .cc
 
@@ -959,8 +1073,8 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
 
     @objc func onTableRowMidiNumberChanged(_ sender: NSTextField) {
         let row = sender.tag
-        guard row < ControllerManagerRefs.mappingRows.count else { return }
-        let target = ControllerManagerRefs.mappingRows[row]
+        guard row < ControllerManagerRefs.currentRows.count else { return }
+        let target = ControllerManagerRefs.currentRows[row]
         let text = sender.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard let num = UInt8(text), num <= 127 else {
@@ -982,8 +1096,8 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
 
     @objc func onTableRowMidiChannelChanged(_ sender: NSPopUpButton) {
         let row = sender.tag
-        guard row < ControllerManagerRefs.mappingRows.count else { return }
-        let target = ControllerManagerRefs.mappingRows[row]
+        guard row < ControllerManagerRefs.currentRows.count else { return }
+        let target = ControllerManagerRefs.currentRows[row]
         let chIdx = sender.indexOfSelectedItem
         let channel: UInt8 = (chIdx == 0) ? 255 : UInt8(chIdx - 1)
 
@@ -1002,8 +1116,8 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
     }
     @objc func onTableRowLearnClicked(_ sender: NSButton) {
         let row = sender.tag
-        guard row < ControllerManagerRefs.mappingRows.count else { return }
-        let target = ControllerManagerRefs.mappingRows[row]
+        guard row < ControllerManagerRefs.currentRows.count else { return }
+        let target = ControllerManagerRefs.currentRows[row]
         let learn = RaneMidiLearnService.shared
 
         if learn.isLearnModeActive && learn.selectedTarget == target {
@@ -1020,8 +1134,8 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
 
     @objc func onTableRowClearClicked(_ sender: NSButton) {
         let row = sender.tag
-        guard row < ControllerManagerRefs.mappingRows.count else { return }
-        let target = ControllerManagerRefs.mappingRows[row]
+        guard row < ControllerManagerRefs.currentRows.count else { return }
+        let target = ControllerManagerRefs.currentRows[row]
         RaneMidiLearnService.shared.clearMapping(for: target)
         appendMidiLog("Controller Manager: Mapping für [\(target.displayName)] gelöscht.")
         ControllerManagerRefs.mappingTableView?.reloadData()
@@ -1030,8 +1144,8 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
     // MARK: - Actions (Out Mapping Table)
     @objc func onTableRowOutMidiTypeChanged(_ sender: NSPopUpButton) {
         let row = sender.tag
-        guard row < ControllerManagerRefs.outMappingRows.count else { return }
-        let target = ControllerManagerRefs.outMappingRows[row]
+        guard row < ControllerManagerRefs.currentRows.count else { return }
+        let target = ControllerManagerRefs.currentRows[row]
         let isNote = (sender.indexOfSelectedItem == 1)
         let newType: MidiMessageType = isNote ? .note : .cc
 
@@ -1045,8 +1159,8 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
 
     @objc func onTableRowOutMidiNumberChanged(_ sender: NSTextField) {
         let row = sender.tag
-        guard row < ControllerManagerRefs.outMappingRows.count else { return }
-        let target = ControllerManagerRefs.outMappingRows[row]
+        guard row < ControllerManagerRefs.currentRows.count else { return }
+        let target = ControllerManagerRefs.currentRows[row]
         let text = sender.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard let num = UInt8(text), num <= 127 else {
@@ -1064,8 +1178,8 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
 
     @objc func onTableRowOutMidiChannelChanged(_ sender: NSPopUpButton) {
         let row = sender.tag
-        guard row < ControllerManagerRefs.outMappingRows.count else { return }
-        let target = ControllerManagerRefs.outMappingRows[row]
+        guard row < ControllerManagerRefs.currentRows.count else { return }
+        let target = ControllerManagerRefs.currentRows[row]
         let channel = UInt8(max(0, sender.indexOfSelectedItem))
 
         let learn = RaneMidiLearnService.shared
@@ -1078,8 +1192,8 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
 
     @objc func onTableRowOnValueChanged(_ sender: NSTextField) {
         let row = sender.tag
-        guard row < ControllerManagerRefs.outMappingRows.count else { return }
-        let target = ControllerManagerRefs.outMappingRows[row]
+        guard row < ControllerManagerRefs.currentRows.count else { return }
+        let target = ControllerManagerRefs.currentRows[row]
         let text = sender.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard let val = UInt8(text), val <= 127 else {
@@ -1098,8 +1212,8 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
 
     @objc func onTableRowOffValueChanged(_ sender: NSTextField) {
         let row = sender.tag
-        guard row < ControllerManagerRefs.outMappingRows.count else { return }
-        let target = ControllerManagerRefs.outMappingRows[row]
+        guard row < ControllerManagerRefs.currentRows.count else { return }
+        let target = ControllerManagerRefs.currentRows[row]
         let text = sender.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard let val = UInt8(text), val <= 127 else {
@@ -1118,8 +1232,8 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
 
     @objc func onTableRowTestLedClicked(_ sender: NSButton) {
         let row = sender.tag
-        guard row < ControllerManagerRefs.outMappingRows.count else { return }
-        let target = ControllerManagerRefs.outMappingRows[row]
+        guard row < ControllerManagerRefs.currentRows.count else { return }
+        let target = ControllerManagerRefs.currentRows[row]
         let learn = RaneMidiLearnService.shared
         let midi = RaneMidiService.shared
 
@@ -1153,8 +1267,8 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
 
     @objc func onTableRowClearOutClicked(_ sender: NSButton) {
         let row = sender.tag
-        guard row < ControllerManagerRefs.outMappingRows.count else { return }
-        let target = ControllerManagerRefs.outMappingRows[row]
+        guard row < ControllerManagerRefs.currentRows.count else { return }
+        let target = ControllerManagerRefs.currentRows[row]
         RaneMidiLearnService.shared.clearOutMapping(for: target)
         appendMidiLog("Controller Manager Out: LED-Mapping für [\(target.displayName)] gelöscht.")
         ControllerManagerRefs.mappingTableView?.reloadData()

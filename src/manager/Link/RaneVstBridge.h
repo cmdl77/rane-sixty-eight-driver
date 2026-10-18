@@ -72,6 +72,7 @@ void rane_vst_set_tempo(double bpm, double sampleRate, bool isPlaying, bool send
 bool rane_vst_get_editor_rect(AEffect* effect, int* outW, int* outH);
 void rane_vst_open_editor(AEffect* effect, void* nsViewPtr);
 void rane_vst_close_editor(AEffect* effect);
+void rane_vst_edit_idle(AEffect* effect);
 
 // Cleanup and teardown (VST2)
 void rane_vst_close(AEffect* effect, void* bundle);
@@ -80,6 +81,7 @@ void rane_vst_close(AEffect* effect, void* bundle);
 // VST 3 C ABI (Opaque Instance Handle)
 // ============================================================================
 typedef struct RaneVst3Instance RaneVst3Instance;
+typedef void (*RaneVstResizeCallback)(void* context, int32_t width, int32_t height);
 
 // Lifecycle: Load, initialize, and activate VST3 plugin (.vst3) for real-time processing
 RaneVst3Instance* rane_vst3_load(const char* bundlePath, double sampleRate, int blockSize);
@@ -94,6 +96,10 @@ void rane_vst3_send_midi(RaneVst3Instance* inst, uint8_t status, uint8_t data1, 
 bool rane_vst3_get_editor_rect(RaneVst3Instance* inst, int* outW, int* outH);
 bool rane_vst3_open_editor(RaneVst3Instance* inst, void* nsViewPtr);
 void rane_vst3_close_editor(RaneVst3Instance* inst);
+void rane_vst3_set_focus(RaneVst3Instance* inst, bool hasFocus);
+bool rane_vst3_check_can_resize(RaneVst3Instance* inst);
+void rane_vst3_set_resize_callback(RaneVst3Instance* inst, RaneVstResizeCallback cb, void* context);
+void rane_vst3_sync_all_params_to_processor(RaneVst3Instance* inst);
 
 // Cleanup and teardown (VST3)
 void rane_vst3_close(RaneVst3Instance* inst);

@@ -469,9 +469,9 @@ class RaneMidiService {
 
     // Echo suppression: Outgoing MIDI messages sent to hardware/virtual endpoints
     private struct OutgoingEcho {
-        let status: UInt8
-        let d1: UInt8
-        let d2: UInt8
+        let statusNibble: UInt8
+        let channel: UInt8
+        let number: UInt8
         let timestamp: TimeInterval
     }
     private var sentEchoes: [OutgoingEcho] = []
@@ -481,29 +481,30 @@ class RaneMidiService {
         echoLock.lock()
         defer { echoLock.unlock() }
         let now = Date().timeIntervalSince1970
-        // Clean up entries older than 0.5s
-        sentEchoes.removeAll { now - $0.timestamp > 0.5 }
-        sentEchoes.append(OutgoingEcho(status: status, d1: d1, d2: d2, timestamp: now))
+        sentEchoes.removeAll { now - $0.timestamp > 1.5 }
+        let nibble = status & 0xF0
+        let ch = status & 0x0F
+        sentEchoes.append(OutgoingEcho(statusNibble: nibble, channel: ch, number: d1, timestamp: now))
     }
 
     private func isEchoOfSentMidi(status: UInt8, d1: UInt8, d2: UInt8) -> Bool {
         echoLock.lock()
         defer { echoLock.unlock() }
         let now = Date().timeIntervalSince1970
-        // Clean up entries older than 0.5s
-        sentEchoes.removeAll { now - $0.timestamp > 0.5 }
+        sentEchoes.removeAll { now - $0.timestamp > 1.5 }
 
-        let isIncomingNoteOff = (status & 0xF0 == 0x80) || ((status & 0xF0 == 0x90) && d2 == 0)
+        let incomingNibble = status & 0xF0
+        let incomingCh = status & 0x0F
 
-        // Check if this matches a recently sent message
         if let idx = sentEchoes.firstIndex(where: { echo in
-            // Exact status & number match
-            if (echo.status & 0x0F) == (status & 0x0F) && echo.d1 == d1 {
-                let isSentNoteOff = (echo.status & 0xF0 == 0x80) || ((echo.status & 0xF0 == 0x90) && d2 == 0)
-                if isIncomingNoteOff && isSentNoteOff {
+            if echo.channel == incomingCh && echo.number == d1 {
+                // For Notes: both 0x90 and 0x80 match
+                if (echo.statusNibble == 0x90 || echo.statusNibble == 0x80) &&
+                   (incomingNibble == 0x90 || incomingNibble == 0x80) {
                     return true
                 }
-                if echo.status == status && echo.d2 == d2 {
+                // For CC: match CC nibble 0xB0
+                if echo.statusNibble == 0xB0 && incomingNibble == 0xB0 {
                     return true
                 }
             }
@@ -515,9 +516,21 @@ class RaneMidiService {
         return false
     }
 
+    private func targetDestinations() -> [MIDIEndpointRef] {
+        let selectedId = RaneMidiLearnService.shared.controllerMidiSourceId
+        if selectedId != "OMNI" {
+            let matched = allOnlineDestinations.filter { endpointDisplayName($0) == selectedId }
+            if !matched.isEmpty {
+                return matched
+            }
+        }
+        return allOnlineDestinations
+    }
+
     func sendCC(cc: UInt8, value: UInt8, channel: UInt8 = 0) {
         if allOnlineDestinations.isEmpty { connectEndpoints() }
-        guard !allOnlineDestinations.isEmpty else { return }
+        let targets = targetDestinations()
+        guard !targets.isEmpty else { return }
 
         let st = 0xB0 | (channel & 0x0F)
         let c = cc & 0x7F
@@ -532,14 +545,15 @@ class RaneMidiService {
         packet.data.2 = v
 
         var list = MIDIPacketList(numPackets: 1, packet: packet)
-        for dest in allOnlineDestinations {
+        for dest in targets {
             MIDISend(outPort, dest, &list)
         }
     }
 
     func sendNoteOn(note: UInt8, velocity: UInt8 = 127, channel: UInt8 = 0) {
         if allOnlineDestinations.isEmpty { connectEndpoints() }
-        guard !allOnlineDestinations.isEmpty else { return }
+        let targets = targetDestinations()
+        guard !targets.isEmpty else { return }
 
         let st = 0x90 | (channel & 0x0F)
         let n = note & 0x7F
@@ -554,14 +568,15 @@ class RaneMidiService {
         packet.data.2 = vel
 
         var list = MIDIPacketList(numPackets: 1, packet: packet)
-        for dest in allOnlineDestinations {
+        for dest in targets {
             MIDISend(outPort, dest, &list)
         }
     }
 
     func sendNoteOff(note: UInt8, channel: UInt8 = 0) {
         if allOnlineDestinations.isEmpty { connectEndpoints() }
-        guard !allOnlineDestinations.isEmpty else { return }
+        let targets = targetDestinations()
+        guard !targets.isEmpty else { return }
 
         let ch = channel & 0x0F
         let n = note & 0x7F
@@ -576,7 +591,7 @@ class RaneMidiService {
         packet.data.2 = 0
 
         var list = MIDIPacketList(numPackets: 1, packet: packet)
-        for dest in allOnlineDestinations {
+        for dest in targets {
             MIDISend(outPort, dest, &list)
         }
     }

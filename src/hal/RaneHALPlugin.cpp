@@ -15,11 +15,19 @@
 #include <atomic>
 #include <cmath>
 #include <cstring>
+#include <time.h>
 
 #include "../engine/StreamEngine.h"
 #include "../transport/IOUSBLibTransport.h"
+#include "../protocol/RaneAudioExchange.h"
 
 #define RLOG(fmt, ...) os_log(OS_LOG_DEFAULT, "[RaneHALPlugin] " fmt, ##__VA_ARGS__)
+
+static inline uint64_t RaneGetTimeNs() {
+    static mach_timebase_info_data_t tb = {0, 0};
+    if (tb.denom == 0) mach_timebase_info(&tb);
+    return (mach_absolute_time() * tb.numer) / tb.denom;
+}
 
 #pragma pack(push, 4)
 struct RaneSharedMeters {
@@ -80,6 +88,39 @@ static void InitSharedMeters() {
     RLOG("Shared meters initialized successfully at %s (%zu bytes, 12 In / 10 Out)", path, sizeof(RaneSharedMeters));
 }
 
+static RaneAudioExchange* gSharedAudio = nullptr;
+static int gSharedAudioFd = -1;
+
+static void InitSharedAudioExchange() {
+    if (gSharedAudio) return;
+    const char* path = RANE_AUDIO_EXCHANGE_PATH;
+    int fd = open(path, O_RDWR | O_CREAT, 0666);
+    if (fd < 0) {
+        RLOG("Failed to open shared audio exchange file %s (errno %d)", path, errno);
+        return;
+    }
+    fchmod(fd, 0666);
+    if (ftruncate(fd, sizeof(RaneAudioExchange)) != 0) {
+        RLOG("Failed to truncate shared audio exchange file (errno %d)", errno);
+    }
+    void* ptr = mmap(nullptr, sizeof(RaneAudioExchange), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (ptr == MAP_FAILED) {
+        RLOG("Failed to mmap shared audio exchange file (errno %d)", errno);
+        close(fd);
+        return;
+    }
+    gSharedAudioFd = fd;
+    gSharedAudio = (RaneAudioExchange*)ptr;
+    if (gSharedAudio->magic != RANE_AUDIO_EXCHANGE_MAGIC) {
+        memset(gSharedAudio, 0, sizeof(RaneAudioExchange));
+        gSharedAudio->magic = RANE_AUDIO_EXCHANGE_MAGIC;
+        gSharedAudio->version = 1;
+        gSharedAudio->sampleRate = 48000;
+        gSharedAudio->bufferFrameSize = 512;
+    }
+    RLOG("Shared audio exchange initialized successfully at %s (%zu bytes)", path, sizeof(RaneAudioExchange));
+}
+
 static constexpr AudioObjectID kObjectID_PlugIn        = kAudioObjectPlugInObject; /* = 1 */
 static constexpr AudioObjectID kObjectID_Device        = 2;
 static constexpr AudioObjectID kObjectID_Stream_Input  = 3;
@@ -106,7 +147,7 @@ static std::atomic<UInt32>      gBufferFrameSize{512};
 static std::atomic<bool>        gStreamInputActive{true};
 static std::atomic<bool>        gStreamOutputActive{true};
 static std::atomic<bool>        gDeviceRunning{false};
-static std::atomic<bool>        gDeviceAlive{false};
+static std::atomic<bool>        gDeviceAlive{true};
 
 static void LoadPersistedBufferFrameSize() {
     FILE* f = fopen("/tmp/rane_sixty_eight_buffer_size.txt", "r");
@@ -160,7 +201,7 @@ static void NotifyDeviceAvailability(bool alive) {
             pthread_mutex_unlock(&gStateLock);
         }
     }
-    gDeviceAlive.store(alive);
+    gDeviceAlive.store(true); // Keep device permanently in CoreAudio device list
     RLOG("Availability notification: %s", alive ? "Rane Device Connected" : "Rane Device Disconnected");
     if (!gHost) return;
 
@@ -295,6 +336,7 @@ static OSStatus RaneHAL_Initialize(AudioServerPlugInDriverRef, AudioServerPlugIn
     gHost = inHost;
     RLOG("Initializing Rane HAL PlugIn");
     InitSharedMeters();
+    InitSharedAudioExchange();
     LoadPersistedBufferFrameSize();
     StreamEngine::shared().init();
 
@@ -448,9 +490,8 @@ static OSStatus RaneHAL_GetPropertyDataSize(AudioServerPlugInDriverRef, AudioObj
         case kAudioObjectPropertyClass:
         case kAudioObjectPropertyOwner:                   *outDataSize = sizeof(AudioClassID); return noErr;
         case kAudioObjectPropertyManufacturer:
-        case kAudioPlugInPropertyResourceBundle:          *outDataSize = sizeof(CFStringRef); return noErr;
         case kAudioObjectPropertyOwnedObjects:
-        case kAudioPlugInPropertyDeviceList:              *outDataSize = gDeviceAlive.load() ? sizeof(AudioObjectID) : 0; return noErr;
+        case kAudioPlugInPropertyDeviceList:              *outDataSize = sizeof(AudioObjectID); return noErr;
         case kAudioPlugInPropertyTranslateUIDToDevice:    *outDataSize = sizeof(AudioObjectID); return noErr;
         }
         return kAudioHardwareUnknownPropertyError;
@@ -539,12 +580,8 @@ static OSStatus RaneHAL_GetPropertyData(AudioServerPlugInDriverRef, AudioObjectI
         case kAudioObjectPropertyManufacturer:return WriteCFString(CFSTR("Rane / Open Source Community"), inDataSize, outDataSize, outData);
         case kAudioObjectPropertyOwnedObjects:
         case kAudioPlugInPropertyDeviceList:
-            if (gDeviceAlive.load()) {
-                ((AudioObjectID*)outData)[0] = kObjectID_Device;
-                *outDataSize = sizeof(AudioObjectID);
-            } else {
-                *outDataSize = 0;
-            }
+            ((AudioObjectID*)outData)[0] = kObjectID_Device;
+            *outDataSize = sizeof(AudioObjectID);
             return noErr;
         case kAudioPlugInPropertyTranslateUIDToDevice: {
             CFStringRef requestedUID = (inQualifierData ? *(CFStringRef*)inQualifierData : nullptr);
@@ -806,6 +843,7 @@ static OSStatus RaneHAL_StartIO(AudioServerPlugInDriverRef, AudioObjectID device
     if (deviceID != kObjectID_Device) return kAudioHardwareBadObjectError;
     RLOG("StartIO requested");
     InitSharedMeters();
+    InitSharedAudioExchange();
     pthread_mutex_lock(&gStateLock);
     bool ok = StreamEngine::shared().start();
     if (ok) {
@@ -907,11 +945,47 @@ static OSStatus RaneHAL_DoIOOperation(AudioServerPlugInDriverRef, AudioObjectID 
         return noErr;
     }
     if (inOperationID == kAudioServerPlugInIOOperationWriteMix && streamID == kObjectID_Stream_Output) {
-        if (gSharedMeters && ioMainBuffer) {
-            const float* fbuf = (const float*)ioMainBuffer;
+        const uint64_t sampleTime = (uint64_t)inIOCycleInfo->mOutputTime.mSampleTime;
+        bool useVstExchange = false;
+        const float* audioToSend = (const float*)ioMainBuffer;
+
+        if (gSharedAudio && gSharedAudio->vstActive) {
+            uint64_t nowNs = RaneGetTimeNs();
+            uint64_t ts = gSharedAudio->timestampNs;
+            uint64_t diff = (nowNs >= ts) ? (nowNs - ts) : (ts - nowNs);
+            if (ts > 0 && diff < 400000000ULL) { // within 400 ms
+                useVstExchange = true;
+            }
+        }
+
+        if (useVstExchange && ioMainBuffer && inIOBufferFrameSize <= RANE_AUDIO_EXCHANGE_MAX_FRAMES) {
+            uint32_t activeIdx = gSharedAudio->driverBufferIdx % RANE_AUDIO_EXCHANGE_NUM_BUFFERS;
+            if (gSharedAudio->managerCycleCount > 0 && gSharedAudio->managerBufferIdx == activeIdx) {
+                float* procBuf = rane_exchange_get_processed_buffer(gSharedAudio, activeIdx);
+                if (procBuf) {
+                    audioToSend = procBuf;
+                }
+            }
+
+            // 2. Put fresh incoming DAW audio into next ping-pong buffer for manager to process next cycle
+            uint32_t nextIdx = 1 - activeIdx;
+            float* dawBuf = rane_exchange_get_daw_buffer(gSharedAudio, nextIdx);
+            if (dawBuf) {
+                memcpy(dawBuf, ioMainBuffer, inIOBufferFrameSize * kOutChannels * sizeof(float));
+            }
+            gSharedAudio->bufferFrameSize = inIOBufferFrameSize;
+            gSharedAudio->driverCycleCount++;
+            gSharedAudio->driverBufferIdx = nextIdx;
+        }
+
+        // Send to physical mixer hardware via StreamEngine
+        StreamEngine::shared().writeOutput(sampleTime, inIOBufferFrameSize, audioToSend);
+
+        // Update meters with the actual audio being sent to hardware
+        if (gSharedMeters && audioToSend) {
             float p[10] = {0};
             for (UInt32 f = 0; f < inIOBufferFrameSize; f++) {
-                const float* frame = fbuf + f * kOutChannels;
+                const float* frame = audioToSend + f * kOutChannels;
                 for (UInt32 c = 0; c < kOutChannels; c++) {
                     float v = fabsf(frame[c]);
                     if (v > p[c]) p[c] = v;
@@ -923,8 +997,6 @@ static OSStatus RaneHAL_DoIOOperation(AudioServerPlugInDriverRef, AudioObjectID 
             gSharedMeters->timestampNs = mach_absolute_time();
             gSharedMeters->sequence++;
         }
-        const uint64_t sampleTime = (uint64_t)inIOCycleInfo->mOutputTime.mSampleTime;
-        StreamEngine::shared().writeOutput(sampleTime, inIOBufferFrameSize, (const float*)ioMainBuffer);
         return noErr;
     }
     return noErr;

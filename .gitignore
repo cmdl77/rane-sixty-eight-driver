@@ -8,6 +8,7 @@ build/
 dist/
 *.o
 *.a
+!lib/libabl_link.a
 *.dylib
 *.driver
 *.app
